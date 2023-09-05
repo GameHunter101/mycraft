@@ -275,52 +275,6 @@ impl Cube {
                     tangent: [0.0, 0.0, 0.0],
                 },
             ];
-            // Top face
-            if face_mask & 0b0010_0000 == 0b0010_0000 {
-                let mut top_face = vec![
-                    Vertex {
-                        position: [1.0, 1.0, 0.0],
-                        tex_coords: [top_face.0, top_face.1],
-                        normal: [0.0, 1.0, 0.0],
-                        bitangent: [0.0, 0.0, 0.0],
-                        tangent: [0.0, 0.0, 0.0],
-                    },
-                    Vertex {
-                        position: [1.0, 1.0, 1.0],
-                        tex_coords: [top_face.0, top_face.1 + face_size],
-                        normal: [0.0, 1.0, 0.0],
-                        bitangent: [0.0, 0.0, 0.0],
-                        tangent: [0.0, 0.0, 0.0],
-                    },
-                    Vertex {
-                        position: [0.0, 1.0, 1.0],
-                        tex_coords: [top_face.0 + face_size, top_face.1 + face_size],
-                        normal: [0.0, 1.0, 0.0],
-                        bitangent: [0.0, 0.0, 0.0],
-                        tangent: [0.0, 0.0, 0.0],
-                    },
-                    Vertex {
-                        position: [0.0, 1.0, 0.0],
-                        tex_coords: [top_face.0 + face_size, top_face.1],
-                        normal: [0.0, 1.0, 0.0],
-                        bitangent: [0.0, 0.0, 0.0],
-                        tangent: [0.0, 0.0, 0.0],
-                    },
-                ];
-                vertices.append(&mut top_face);
-                indices.append(
-                    &mut face_indices
-                        .map(|i| {
-                            i + if let Some(p) = indices.last() {
-                                p + 1
-                            } else {
-                                0
-                            }
-                        })
-                        .to_vec(),
-                );
-            }
-
             vertices.append(&mut bottom_face);
             indices.append(
                 &mut face_indices
@@ -334,6 +288,52 @@ impl Cube {
                     .to_vec(),
             );
         }
+        // Top face
+        if face_mask & 0b0010_0000 == 0b0010_0000 {
+            let mut top_face = vec![
+                Vertex {
+                    position: [1.0, 1.0, 0.0],
+                    tex_coords: [top_face.0, top_face.1],
+                    normal: [0.0, 1.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, 1.0, 1.0],
+                    tex_coords: [top_face.0, top_face.1 + face_size],
+                    normal: [0.0, 1.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 1.0, 1.0],
+                    tex_coords: [top_face.0 + face_size, top_face.1 + face_size],
+                    normal: [0.0, 1.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 1.0, 0.0],
+                    tex_coords: [top_face.0 + face_size, top_face.1],
+                    normal: [0.0, 1.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+            ];
+            vertices.append(&mut top_face);
+            indices.append(
+                &mut face_indices
+                    .map(|i| {
+                        i + if let Some(p) = indices.last() {
+                            p + 1
+                        } else {
+                            0
+                        }
+                    })
+                    .to_vec(),
+            );
+        }
+
         // let indices: Vec<u32> = vec![
         //     0, 1, 2, 0, 2, 3, // Front face
         //     4, 5, 6, 4, 6, 7, // Right face

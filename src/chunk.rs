@@ -7,13 +7,14 @@ use crate::{
     utils::MeshTools,
 };
 
-pub const X_SIZE: usize = 3;
-pub const Y_SIZE: usize = 2;
-pub const Z_SIZE: usize = 3;
+pub const X_SIZE: usize = 16;
+pub const Y_SIZE: usize = 256;
+pub const Z_SIZE: usize = 16;
 
 pub struct Chunk {
     pub position: na::Vector3<f32>,
     pub blocks: Box<[[[u16; Z_SIZE]; X_SIZE]; Y_SIZE]>,
+    pub atlas_material_index: u32,
 }
 
 impl Chunk {
@@ -91,37 +92,40 @@ impl MeshTools for Chunk {
                     let block_type = BlockWrapper[*block as u32];
                     if block_type != Blocks::Null {
                         let face_mask = self.query_neighbors(x, y, z);
-                        let block = Cube::new(
-                            "cube",
-                            self.position + na::Vector3::new(x as f32, y as f32, z as f32),
-                            0,
-                            block_type,
-                            face_mask,
-                        );
+                        if face_mask != 0 {
+                            let block = Cube::new(
+                                "cube",
+                                self.position + na::Vector3::new(x as f32, y as f32, z as f32),
+                                0,
+                                block_type,
+                                face_mask,
+                            );
 
-                        let mut recalculated_vertices = block
-                            .vertices
-                            .iter()
-                            .map(|v| {
-                                let old_position = na::Vector3::from_column_slice(&v.position);
-                                let new_position: [f32; 3] = (block.position + old_position).into();
+                            let mut recalculated_vertices = block
+                                .vertices
+                                .iter()
+                                .map(|v| {
+                                    let old_position = na::Vector3::from_column_slice(&v.position);
+                                    let new_position: [f32; 3] =
+                                        (block.position + old_position).into();
 
-                                Vertex {
-                                    position: new_position,
-                                    tex_coords: v.tex_coords,
-                                    normal: v.normal,
-                                    bitangent: v.bitangent,
-                                    tangent: v.tangent,
-                                }
-                            })
-                            .collect::<Vec<_>>();
-                        let mut recalculated_indices = block
-                            .indices
-                            .iter()
-                            .map(|i| i + vertices.len() as u32)
-                            .collect::<Vec<_>>();
-                        vertices.append(&mut recalculated_vertices);
-                        indices.append(&mut recalculated_indices);
+                                    Vertex {
+                                        position: new_position,
+                                        tex_coords: v.tex_coords,
+                                        normal: v.normal,
+                                        bitangent: v.bitangent,
+                                        tangent: v.tangent,
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+                            let mut recalculated_indices = block
+                                .indices
+                                .iter()
+                                .map(|i| i + vertices.len() as u32)
+                                .collect::<Vec<_>>();
+                            vertices.append(&mut recalculated_vertices);
+                            indices.append(&mut recalculated_indices);
+                        }
                     }
                 }
             }

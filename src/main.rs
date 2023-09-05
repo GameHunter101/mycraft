@@ -1,7 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
 use chunk::{Chunk, X_SIZE, Y_SIZE, Z_SIZE};
-use cube::{Blocks, Cube};
 use gamezap::{camera::CameraManager, module_manager::ModuleManager, texture::Texture, GameZap};
 use nalgebra as na;
 use sdl2::{event::WindowEvent, keyboard::Scancode, mouse::RelativeMouseState};
@@ -76,30 +75,13 @@ fn main() {
         .as_ref()
         .unwrap();
 
-    let cube = Cube::new(
-        "Grass block",
-        na::Vector3::new(0.0, 0.0, 4.0),
-        texture_atlas.1,
-        Blocks::Grass,
-        0b0001_1111,
-    );
-    cube.create_mesh(renderer_device, mesh_manager.borrow_mut());
-
-    let second_cube = Cube::new(
-        "Dirt block",
-        na::Vector3::new(0.0, -1.0, 4.0),
-        texture_atlas.1,
-        Blocks::Dirt,
-        0b0100_100,
-    );
-    second_cube.create_mesh(renderer_device, mesh_manager.borrow_mut());
-
     let mut chunk_blocks = Box::new([[[1; Z_SIZE]; X_SIZE]; Y_SIZE]);
-    chunk_blocks[Y_SIZE - 1] = [[0; Z_SIZE], [0, 2, 1], [1; Z_SIZE]];
+    chunk_blocks[Y_SIZE - 1] = [[0; Z_SIZE]; X_SIZE];
 
     let chunk = Chunk {
         position: na::Vector3::new(0.0, 0.0, 10.0),
         blocks: chunk_blocks,
+        atlas_material_index: texture_atlas.1,
     };
 
     chunk.create_mesh(renderer_device, mesh_manager.borrow_mut());
