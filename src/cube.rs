@@ -6,7 +6,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{utils::MeshTools, ATLAS_SIZE};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Blocks {
     Grass,
     Dirt,
@@ -41,12 +41,18 @@ pub struct Cube {
     pub name: String,
     pub position: na::Vector3<f32>,
     pub material_index: u32,
-    pub vertices: [Vertex; 24],
-    pub indices: [u32; 36],
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
 }
 
 impl Cube {
-    pub fn new(name: &str, position: na::Vector3<f32>, material_index: u32, block: Blocks) -> Self {
+    pub fn new(
+        name: &str,
+        position: na::Vector3<f32>,
+        material_index: u32,
+        block: Blocks,
+        face_mask: u8,
+    ) -> Self {
         let texture_coords = block.coords();
         let face_size = 16.0 / ATLAS_SIZE;
 
@@ -54,190 +60,288 @@ impl Cube {
         let side_face = (texture_coords.0 + face_size, texture_coords.1);
         let bottom_face = (texture_coords.0 + 2.0 * face_size, texture_coords.1);
 
-        let vertices = [
-            // Front face
-            Vertex {
-                position: [0.0, 1.0, 0.0],
-                tex_coords: [side_face.0, side_face.1],
-                normal: [0.0, 0.0, -1.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.0, 0.0],
-                tex_coords: [side_face.0, side_face.1 + face_size],
-                normal: [0.0, 0.0, -1.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, 0.0, 0.0],
-                tex_coords: [side_face.0 + face_size, side_face.1 + face_size],
-                normal: [0.0, 0.0, -1.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, 1.0, 0.0],
-                tex_coords: [side_face.0 + face_size, side_face.1],
-                normal: [0.0, 0.0, -1.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            // Right face
-            Vertex {
-                position: [1.0, 1.0, 0.0],
-                tex_coords: [side_face.0, side_face.1],
-                normal: [1.0, 0.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, 0.0, 0.0],
-                tex_coords: [side_face.0, side_face.1 + face_size],
-                normal: [1.0, 0.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, 0.0, 1.0],
-                tex_coords: [side_face.0 + face_size, side_face.1 + face_size],
-                normal: [1.0, 0.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, 1.0, 1.0],
-                tex_coords: [side_face.0 + face_size, side_face.1],
-                normal: [1.0, 0.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            // Back face
-            Vertex {
-                position: [0.0, 1.0, 1.0],
-                tex_coords: [side_face.0, side_face.1],
-                normal: [0.0, 0.0, 1.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.0, 1.0],
-                tex_coords: [side_face.0, side_face.1 + face_size],
-                normal: [0.0, 0.0, 1.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, 0.0, 1.0],
-                tex_coords: [side_face.0 + face_size, side_face.1 + face_size],
-                normal: [0.0, 0.0, 1.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, 1.0, 1.0],
-                tex_coords: [side_face.0 + face_size, side_face.1],
-                normal: [0.0, 0.0, 1.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            // Left face
-            Vertex {
-                position: [0.0, 1.0, 0.0],
-                tex_coords: [side_face.0, side_face.1],
-                normal: [-1.0, 0.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.0, 0.0],
-                tex_coords: [side_face.0, side_face.1 + face_size],
-                normal: [-1.0, 0.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.0, 1.0],
-                tex_coords: [side_face.0 + face_size, side_face.1 + face_size],
-                normal: [-1.0, 0.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 1.0, 1.0],
-                tex_coords: [side_face.0 + face_size, side_face.1],
-                normal: [-1.0, 0.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
+        let mut vertices = vec![];
+        let mut indices = vec![];
+        let face_indices = [0, 1, 2, 0, 2, 3];
+        // Front face
+        if face_mask & 0b0000_0001 == 0b0000_0001 {
+            let mut front_face = vec![
+                Vertex {
+                    position: [0.0, 1.0, 0.0],
+                    tex_coords: [side_face.0, side_face.1],
+                    normal: [0.0, 0.0, -1.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 0.0, 0.0],
+                    tex_coords: [side_face.0, side_face.1 + face_size],
+                    normal: [0.0, 0.0, -1.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, 0.0, 0.0],
+                    tex_coords: [side_face.0 + face_size, side_face.1 + face_size],
+                    normal: [0.0, 0.0, -1.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, 1.0, 0.0],
+                    tex_coords: [side_face.0 + face_size, side_face.1],
+                    normal: [0.0, 0.0, -1.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+            ];
+            vertices.append(&mut front_face);
+            indices.append(
+                &mut face_indices
+                    .map(|i| {
+                        i + if let Some(p) = indices.last() {
+                            p + 1
+                        } else {
+                            0
+                        }
+                    })
+                    .to_vec(),
+            );
+        }
+        // Back face
+        if face_mask & 0b0000_0010 == 0b0000_0010 {
+            let mut back_face = vec![
+                Vertex {
+                    position: [0.0, 1.0, 1.0],
+                    tex_coords: [side_face.0, side_face.1],
+                    normal: [0.0, 0.0, 1.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 0.0, 1.0],
+                    tex_coords: [side_face.0, side_face.1 + face_size],
+                    normal: [0.0, 0.0, 1.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, 0.0, 1.0],
+                    tex_coords: [side_face.0 + face_size, side_face.1 + face_size],
+                    normal: [0.0, 0.0, 1.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, 1.0, 1.0],
+                    tex_coords: [side_face.0 + face_size, side_face.1],
+                    normal: [0.0, 0.0, 1.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+            ];
+            vertices.append(&mut back_face);
+            indices.append(
+                &mut face_indices
+                    .map(|i| {
+                        i + if let Some(p) = indices.last() {
+                            p + 1
+                        } else {
+                            0
+                        }
+                    })
+                    .to_vec(),
+            );
+        }
+        // Left face
+        if face_mask & 0b0000_0100 == 0b0000_0100 {
+            let mut left_face = vec![
+                Vertex {
+                    position: [0.0, 1.0, 0.0],
+                    tex_coords: [side_face.0, side_face.1],
+                    normal: [-1.0, 0.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 0.0, 0.0],
+                    tex_coords: [side_face.0, side_face.1 + face_size],
+                    normal: [-1.0, 0.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 0.0, 1.0],
+                    tex_coords: [side_face.0 + face_size, side_face.1 + face_size],
+                    normal: [-1.0, 0.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 1.0, 1.0],
+                    tex_coords: [side_face.0 + face_size, side_face.1],
+                    normal: [-1.0, 0.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+            ];
+            vertices.append(&mut left_face);
+            indices.append(
+                &mut face_indices
+                    .map(|i| {
+                        i + if let Some(p) = indices.last() {
+                            p + 1
+                        } else {
+                            0
+                        }
+                    })
+                    .to_vec(),
+            );
+        }
+        // Right face
+        if face_mask & 0b0000_1000 == 0b0000_1000 {
+            let mut right_face = vec![
+                Vertex {
+                    position: [1.0, 1.0, 0.0],
+                    tex_coords: [side_face.0, side_face.1],
+                    normal: [1.0, 0.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, 0.0, 0.0],
+                    tex_coords: [side_face.0, side_face.1 + face_size],
+                    normal: [1.0, 0.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, 0.0, 1.0],
+                    tex_coords: [side_face.0 + face_size, side_face.1 + face_size],
+                    normal: [1.0, 0.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, 1.0, 1.0],
+                    tex_coords: [side_face.0 + face_size, side_face.1],
+                    normal: [1.0, 0.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+            ];
+            vertices.append(&mut right_face);
+            indices.append(
+                &mut face_indices
+                    .map(|i| {
+                        i + if let Some(p) = indices.last() {
+                            p + 1
+                        } else {
+                            0
+                        }
+                    })
+                    .to_vec(),
+            );
+        }
+        // Bottom face
+        if face_mask & 0b0001_0000 == 0b0001_0000 {
+            let mut bottom_face = vec![
+                Vertex {
+                    position: [1.0, 0.0, 0.0],
+                    tex_coords: [bottom_face.0, bottom_face.1],
+                    normal: [0.0, -1.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [1.0, 0.0, 1.0],
+                    tex_coords: [bottom_face.0, bottom_face.1 + face_size],
+                    normal: [0.0, -1.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 0.0, 1.0],
+                    tex_coords: [bottom_face.0 + face_size, bottom_face.1 + face_size],
+                    normal: [0.0, -1.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.0, 0.0, 0.0],
+                    tex_coords: [bottom_face.0 + face_size, top_face.1],
+                    normal: [0.0, -1.0, 0.0],
+                    bitangent: [0.0, 0.0, 0.0],
+                    tangent: [0.0, 0.0, 0.0],
+                },
+            ];
             // Top face
-            Vertex {
-                position: [1.0, 1.0, 0.0],
-                tex_coords: [top_face.0, top_face.1],
-                normal: [0.0, 1.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, 1.0, 1.0],
-                tex_coords: [top_face.0, top_face.1 + face_size],
-                normal: [0.0, 1.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 1.0, 1.0],
-                tex_coords: [top_face.0 + face_size, top_face.1 + face_size],
-                normal: [0.0, 1.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 1.0, 0.0],
-                tex_coords: [top_face.0 + face_size, top_face.1],
-                normal: [0.0, 1.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            // Bottom face
-            Vertex {
-                position: [1.0, 0.0, 0.0],
-                tex_coords: [bottom_face.0, bottom_face.1],
-                normal: [0.0, -1.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [1.0, 0.0, 1.0],
-                tex_coords: [bottom_face.0, bottom_face.1 + face_size],
-                normal: [0.0, -1.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.0, 1.0],
-                tex_coords: [bottom_face.0 + face_size, bottom_face.1 + face_size],
-                normal: [0.0, -1.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.0, 0.0],
-                tex_coords: [bottom_face.0 + face_size, top_face.1],
-                normal: [0.0, -1.0, 0.0],
-                bitangent: [0.0, 0.0, 0.0],
-                tangent: [0.0, 0.0, 0.0],
-            },
-        ];
-        let indices: [u32; 36] = [
-            0, 1, 2, 0, 2, 3, // Front face
-            4, 5, 6, 4, 6, 7, // Right face
-            8, 9, 10, 8, 10, 11, // Back face
-            12, 13, 14, 12, 14, 15, //Left face
-            16, 17, 18, 16, 18, 19, // Top face
-            20, 21, 22, 20, 22, 23, // Bottom face
-        ];
+            if face_mask & 0b0010_0000 == 0b0010_0000 {
+                let mut top_face = vec![
+                    Vertex {
+                        position: [1.0, 1.0, 0.0],
+                        tex_coords: [top_face.0, top_face.1],
+                        normal: [0.0, 1.0, 0.0],
+                        bitangent: [0.0, 0.0, 0.0],
+                        tangent: [0.0, 0.0, 0.0],
+                    },
+                    Vertex {
+                        position: [1.0, 1.0, 1.0],
+                        tex_coords: [top_face.0, top_face.1 + face_size],
+                        normal: [0.0, 1.0, 0.0],
+                        bitangent: [0.0, 0.0, 0.0],
+                        tangent: [0.0, 0.0, 0.0],
+                    },
+                    Vertex {
+                        position: [0.0, 1.0, 1.0],
+                        tex_coords: [top_face.0 + face_size, top_face.1 + face_size],
+                        normal: [0.0, 1.0, 0.0],
+                        bitangent: [0.0, 0.0, 0.0],
+                        tangent: [0.0, 0.0, 0.0],
+                    },
+                    Vertex {
+                        position: [0.0, 1.0, 0.0],
+                        tex_coords: [top_face.0 + face_size, top_face.1],
+                        normal: [0.0, 1.0, 0.0],
+                        bitangent: [0.0, 0.0, 0.0],
+                        tangent: [0.0, 0.0, 0.0],
+                    },
+                ];
+                vertices.append(&mut top_face);
+                indices.append(
+                    &mut face_indices
+                        .map(|i| {
+                            i + if let Some(p) = indices.last() {
+                                p + 1
+                            } else {
+                                0
+                            }
+                        })
+                        .to_vec(),
+                );
+            }
+
+            vertices.append(&mut bottom_face);
+            indices.append(
+                &mut face_indices
+                    .map(|i| {
+                        i + if let Some(p) = indices.last() {
+                            p + 1
+                        } else {
+                            0
+                        }
+                    })
+                    .to_vec(),
+            );
+        }
+        // let indices: Vec<u32> = vec![
+        //     0, 1, 2, 0, 2, 3, // Front face
+        //     4, 5, 6, 4, 6, 7, // Right face
+        //     8, 9, 10, 8, 10, 11, // Back face
+        //     12, 13, 14, 12, 14, 15, //Left face
+        //     16, 17, 18, 16, 18, 19, // Top face
+        //     20, 21, 22, 20, 22, 23, // Bottom face
+        // ];
         Cube {
             name: name.to_string(),
             position,

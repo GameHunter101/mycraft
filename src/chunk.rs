@@ -3,12 +3,78 @@ use nalgebra as na;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    cube::{BlockWrapper, Cube},
+    cube::{BlockWrapper, Blocks, Cube},
     utils::MeshTools,
 };
+
+pub const X_SIZE: usize = 3;
+pub const Y_SIZE: usize = 2;
+pub const Z_SIZE: usize = 3;
+
 pub struct Chunk {
     pub position: na::Vector3<f32>,
-    pub blocks: Box<[[[u16; 16]; 16]; 256]>,
+    pub blocks: Box<[[[u16; Z_SIZE]; X_SIZE]; Y_SIZE]>,
+}
+
+impl Chunk {
+    fn query_block(&self, x: usize, y: usize, z: usize) -> Blocks {
+        // println!("{},{},{}", x, y, z);
+        BlockWrapper[self.blocks[y][x][z] as u32]
+    }
+
+    /// Returns a bitmask of which faces have neighboring blocks
+    ///
+    /// From right to left: `1: -z, 2: +z, 4: -x, 8: +x, 16: +y, 32: -y`
+    fn query_neighbors(&self, x: usize, y: usize, z: usize) -> u8 {
+        let mut neighbors = 0b0000_0000;
+
+        if z > 0 {
+            if self.query_block(x, y, z - 1) == Blocks::Null {
+                neighbors |= 0b0000_0001;
+            }
+        } else {
+            neighbors |= 0b0000_0001;
+        }
+        if z < Z_SIZE - 1 {
+            if self.query_block(x, y, z + 1) == Blocks::Null {
+                neighbors |= 0b0000_0010;
+            }
+        } else {
+            neighbors |= 0b0000_0010;
+        }
+
+        if x > 0 {
+            if self.query_block(x - 1, y, z) == Blocks::Null {
+                neighbors |= 0b0000_0100;
+            }
+        } else {
+            neighbors |= 0b0000_0100;
+        }
+        if x < X_SIZE - 1 {
+            if self.query_block(x + 1, y, z) == Blocks::Null {
+                neighbors |= 0b0000_1000;
+            }
+        } else {
+            neighbors |= 0b0000_1000;
+        }
+
+        if y > 0 {
+            if self.query_block(x, y - 1, z) == Blocks::Null {
+                neighbors |= 0b0001_000;
+            }
+        } else {
+            neighbors |= 0b0001_0000;
+        }
+        if y < Y_SIZE - 1 {
+            if self.query_block(x, y + 1, z) == Blocks::Null {
+                neighbors |= 0b0010_0000;
+            }
+        } else {
+            // println!("{},{},{}", x, y, z);
+            neighbors |= 0b0010_0000;
+        }
+        neighbors
+    }
 }
 
 impl MeshTools for Chunk {
@@ -22,34 +88,41 @@ impl MeshTools for Chunk {
         for (y, slice) in self.blocks.iter().enumerate() {
             for (x, row) in slice.iter().enumerate() {
                 for (z, block) in row.iter().enumerate() {
-                    // println!("{}, {}, {}", x, y, z,);
-                    let block = Cube::new(
-                        "cube",
-                        self.position + na::Vector3::new(x as f32, y as f32, z as f32),
-                        0,
-                        BlockWrapper[*block as u32],
-                    );
-                    let mut recalculated_vertices = block
-                        .vertices
-                        .map(|v| {
-                            let old_position = na::Vector3::from_column_slice(&v.position);
-                            let new_position: [f32; 3] = (block.position + old_position).into();
+                    let block_type = BlockWrapper[*block as u32];
+                    if block_type != Blocks::Null {
+                        let face_mask = self.query_neighbors(x, y, z);
+                        let block = Cube::new(
+                            "cube",
+                            self.position + na::Vector3::new(x as f32, y as f32, z as f32),
+                            0,
+                            block_type,
+                            face_mask,
+                        );
 
-                            Vertex {
-                                position: new_position,
-                                tex_coords: v.tex_coords,
-                                normal: v.normal,
-                                bitangent: v.bitangent,
-                                tangent: v.tangent,
-                            }
-                        })
-                        .to_vec();
-                    let mut recalculated_indices = block
-                        .indices
-                        .map(|i| i + vertices.len() as u32)
-                        .to_vec();
-                    vertices.append(&mut recalculated_vertices);
-                    indices.append(&mut recalculated_indices);
+                        let mut recalculated_vertices = block
+                            .vertices
+                            .iter()
+                            .map(|v| {
+                                let old_position = na::Vector3::from_column_slice(&v.position);
+                                let new_position: [f32; 3] = (block.position + old_position).into();
+
+                                Vertex {
+                                    position: new_position,
+                                    tex_coords: v.tex_coords,
+                                    normal: v.normal,
+                                    bitangent: v.bitangent,
+                                    tangent: v.tangent,
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        let mut recalculated_indices = block
+                            .indices
+                            .iter()
+                            .map(|i| i + vertices.len() as u32)
+                            .collect::<Vec<_>>();
+                        vertices.append(&mut recalculated_vertices);
+                        indices.append(&mut recalculated_indices);
+                    }
                 }
             }
         }
