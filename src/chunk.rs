@@ -11,6 +11,7 @@ pub const X_SIZE: usize = 16;
 pub const Y_SIZE: usize = 256;
 pub const Z_SIZE: usize = 16;
 
+#[derive(Debug)]
 pub struct Chunk {
     pub position: na::Vector3<f32>,
     pub blocks: Box<[[[u16; Z_SIZE]; X_SIZE]; Y_SIZE]>,

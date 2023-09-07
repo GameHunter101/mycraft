@@ -1,12 +1,12 @@
 use std::{cell::RefCell, rc::Rc};
 
-use chunk::{Chunk, X_SIZE, Y_SIZE, Z_SIZE};
+use chunk_loader::ChunkLoader;
 use gamezap::{camera::CameraManager, module_manager::ModuleManager, texture::Texture, GameZap};
 use nalgebra as na;
 use sdl2::{event::WindowEvent, keyboard::Scancode, mouse::RelativeMouseState};
-use utils::MeshTools;
 
 mod chunk;
+mod chunk_loader;
 mod cube;
 mod utils;
 
@@ -16,7 +16,13 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let event_pump = sdl_context.event_pump().unwrap();
-    let window = Rc::new(video_subsystem.window("MyCraft", 800, 600).build().unwrap());
+    let window = Rc::new(
+        video_subsystem
+            .window("MyCraft", 800, 600)
+            .resizable()
+            .build()
+            .unwrap(),
+    );
     let clear_color = wgpu::Color {
         r: 0.1,
         g: 0.15,
@@ -75,16 +81,19 @@ fn main() {
         .as_ref()
         .unwrap();
 
-    let mut chunk_blocks = Box::new([[[1; Z_SIZE]; X_SIZE]; Y_SIZE]);
-    chunk_blocks[Y_SIZE - 1] = [[0; Z_SIZE]; X_SIZE];
+    // let mut chunk_blocks = Box::new([[[1; Z_SIZE]; X_SIZE]; Y_SIZE]);
+    // chunk_blocks[Y_SIZE - 1] = [[0; Z_SIZE]; X_SIZE];
 
-    let chunk = Chunk {
-        position: na::Vector3::new(0.0, 0.0, 10.0),
-        blocks: chunk_blocks,
-        atlas_material_index: texture_atlas.1,
-    };
+    // let chunk = Chunk {
+    //     position: na::Vector3::new(0.0, 0.0, 10.0),
+    //     blocks: chunk_blocks,
+    //     atlas_material_index: texture_atlas.1,
+    // };
 
-    chunk.create_mesh(renderer_device, mesh_manager.borrow_mut());
+    // chunk.create_mesh(renderer_device, mesh_manager.borrow_mut());
+
+    let chunk_loader = ChunkLoader::load_chunks(na::Vector3::new(0.0, 0.0, 0.0), texture_atlas.1);
+    chunk_loader.render_chunks(&renderer_device, &mesh_manager);
 
     renderer_borrow.prep_renderer();
 
