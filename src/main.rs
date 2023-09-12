@@ -1,9 +1,16 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    borrow::BorrowMut,
+    cell::{Ref, RefCell, RefMut},
+    rc::Rc,
+};
 
 use chunk_loader::ChunkLoader;
-use gamezap::{camera::CameraManager, module_manager::ModuleManager, texture::Texture, GameZap};
+use gamezap::{
+    module_manager::ModuleManager, renderer::Renderer, texture::Texture, EngineDetails,
+    EngineSettings, EngineSystems, FrameDependancy, GameZap,
+};
 use nalgebra as na;
-use sdl2::{event::WindowEvent, keyboard::Scancode, mouse::RelativeMouseState};
+use sdl2::keyboard::Keycode;
 
 mod chunk;
 mod chunk_loader;
@@ -16,9 +23,10 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let event_pump = sdl_context.event_pump().unwrap();
+    let window_size = (800, 600);
     let window = Rc::new(
         video_subsystem
-            .window("MyCraft", 800, 600)
+            .window("MyCraft", window_size.0, window_size.1)
             .resizable()
             .build()
             .unwrap(),
@@ -32,7 +40,18 @@ fn main() {
 
     let module_manager = ModuleManager::builder()
         .mesh_manager()
-        .camera_manager(na::Vector3::new(0.0, 0.0, 0.0), 0.0, 0.0, 45.0, 0.005)
+        .camera_manager(
+            na::Vector3::new(0.0, 300.0, 0.0),
+            0.1,
+            7.0,
+            0.0,
+            0.0,
+            45.0,
+            0.01,
+            1200.0,
+            window_size.0 as f32,
+            window_size.1 as f32,
+        )
         .build();
 
     let mut engine = GameZap::builder()
@@ -45,15 +64,14 @@ fn main() {
         )
         .module_manager(module_manager)
         .antialiasing()
+        .hide_cursor()
         .build();
 
-    let renderer = RefCell::new(engine.renderer);
-    let renderer_device = &renderer.borrow().device;
-    let renderer_queue = &renderer.borrow().queue;
+    let renderer = engine.renderer.borrow();
+    let renderer_device = &renderer.device;
+    let renderer_queue = &renderer.queue;
 
-    let renderer_borrow = renderer.borrow();
-
-    let mut material_manager = renderer_borrow.module_manager.material_manager.borrow_mut();
+    let mut material_manager = renderer.module_manager.material_manager.borrow_mut();
 
     let texture_atlas = material_manager.new_material(
         "Texture Atlas",
@@ -70,72 +88,83 @@ fn main() {
         None,
     );
 
-    // let plain_material =
-    //     material_manager.new_material("Plain Material", renderer_device, None, None);
-
     drop(material_manager);
 
-    let mesh_manager = renderer_borrow
-        .module_manager
-        .mesh_manager
-        .as_ref()
-        .unwrap();
+    let mesh_manager = renderer.module_manager.mesh_manager.as_ref().unwrap();
 
-    // let mut chunk_blocks = Box::new([[[1; Z_SIZE]; X_SIZE]; Y_SIZE]);
-    // chunk_blocks[Y_SIZE - 1] = [[0; Z_SIZE]; X_SIZE];
-
-    // let chunk = Chunk {
-    //     position: na::Vector3::new(0.0, 0.0, 10.0),
-    //     blocks: chunk_blocks,
-    //     atlas_material_index: texture_atlas.1,
-    // };
-
-    // chunk.create_mesh(renderer_device, mesh_manager.borrow_mut());
-
-    let chunk_loader = ChunkLoader::load_chunks(na::Vector3::new(0.0, 0.0, 0.0), texture_atlas.1);
+    let chunk_loader = ChunkLoader::load_chunks(na::Vector2::new(0.0, 0.0), texture_atlas.1);
     chunk_loader.render_chunks(&renderer_device, &mesh_manager);
+    let chunk_loader_frame_dependancy: RefCell<Box<dyn FrameDependancy>> =
+        RefCell::new(Box::new(chunk_loader));
 
-    renderer_borrow.prep_renderer();
+    renderer.prep_renderer();
 
-    'running: loop {
-        for event in engine.event_pump.poll_iter() {
-            match event {
-                sdl2::event::Event::Quit { .. } => {
-                    break 'running;
-                }
-                sdl2::event::Event::Window {
-                    win_event: WindowEvent::Resized(width, height),
-                    ..
-                } => renderer.borrow_mut().resize((width as u32, height as u32)),
-                _ => {}
-            }
-        }
-        let scancodes = engine
-            .event_pump
-            .keyboard_state()
-            .pressed_scancodes()
-            .collect::<Vec<_>>();
-        let mouse_state = engine.event_pump.relative_mouse_state();
-        input(
-            renderer_borrow.module_manager.camera_manager.as_ref(),
-            &scancodes,
-            &mouse_state,
-        );
-        renderer_borrow.update_buffers();
-        renderer_borrow.render().unwrap();
+    drop(renderer);
 
-        ::std::thread::sleep(std::time::Duration::new(0, 1_000_000_000u32 / 144));
-    }
+    engine
+        .keybinds
+        .insert(Keycode::Escape, (Box::new(toggle_cursor), vec![]));
+
+    engine.main_loop(vec![
+        (Box::new(input), vec![]),
+        (
+            Box::new(recalculate_chunks),
+            vec![chunk_loader_frame_dependancy.borrow_mut()],
+        ),
+    ]);
 }
 
 fn input(
-    camera_manager: Option<&RefCell<CameraManager>>,
-    scancodes: &Vec<Scancode>,
-    mouse_state: &RelativeMouseState,
+    engine_details: RefMut<EngineDetails>,
+    renderer: &RefCell<Renderer>,
+    engine_systems: Ref<EngineSystems>,
+    _frame_dependancies: &mut Vec<RefMut<Box<dyn FrameDependancy>>>,
 ) {
+    let camera_manager = &renderer.borrow().module_manager.camera_manager;
     if let Some(camera_manager) = camera_manager {
         let camera_manager = camera_manager.borrow();
         let mut camera = camera_manager.camera.borrow_mut();
-        camera.transform_camera(scancodes, mouse_state, true);
+        if let Some(mouse_state) = engine_details.mouse_state.0 {
+            camera.transform_camera(
+                &engine_details.pressed_scancodes,
+                &mouse_state,
+                engine_systems
+                    .sdl_context
+                    .borrow()
+                    .mouse()
+                    .relative_mouse_mode(),
+                engine_details.last_frame_duration.as_seconds_f32(),
+            );
+        }
     }
+}
+
+fn recalculate_chunks(
+    engine_details: RefMut<EngineDetails>,
+    renderer: &RefCell<Renderer>,
+    engine_systems: Ref<EngineSystems>,
+    frame_dependancies: &mut Vec<RefMut<Box<dyn FrameDependancy>>>,
+) {
+    // let camera_manager = &renderer.module_manager.camera_manager;
+    // if let Some(camera_manager) = camera_manager {
+    //     let camera_manager = camera_manager.borrow();
+    //     let camera = camera_manager.camera.borrow();
+    //     let mut chunk_loader = frame_dependancies[0].borrow_mut();
+    // }
+    let chunk_loader = frame_dependancies[0].borrow_mut();
+    chunk_loader.frame_update(engine_details, renderer, engine_systems);
+}
+
+fn toggle_cursor(
+    mut engine_details: RefMut<EngineDetails>,
+    _renderer: &RefCell<Renderer>,
+    engine_systems: Ref<EngineSystems>,
+    _frame_dependancies: &mut Vec<RefMut<Box<dyn FrameDependancy>>>,
+) {
+    let old_mouse = engine_details.mouse_state.1;
+    engine_details.mouse_state.1 = !old_mouse;
+    engine_systems
+        .sdl_context
+        .borrow_mut()
+        .update_cursor_mode(!old_mouse);
 }
