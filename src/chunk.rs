@@ -1,5 +1,11 @@
-use gamezap::model::{Mesh, MeshTransform, Vertex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
+
+use gamezap::model::{Mesh, MeshManager, MeshTransform, Vertex};
 use nalgebra as na;
+use threadpool::ThreadPool;
 use wgpu::util::DeviceExt;
 
 use crate::{
@@ -11,16 +17,20 @@ pub const X_SIZE: usize = 16;
 pub const Y_SIZE: usize = 256;
 pub const Z_SIZE: usize = 16;
 
+pub const MAX_VERTICES: usize = 24 * Z_SIZE * X_SIZE * Y_SIZE / 2;
+pub const MAX_INDICES: usize = 36 * Z_SIZE * X_SIZE * Y_SIZE / 2;
+
+pub type BlockArray = [[[u16; Z_SIZE]; X_SIZE]; Y_SIZE];
+
 #[derive(Debug)]
 pub struct Chunk {
-    pub position: na::Vector3<f32>,
-    pub blocks: Box<[[[u16; Z_SIZE]; X_SIZE]; Y_SIZE]>,
+    pub position: na::Vector2<i32>,
+    pub blocks: &'static BlockArray,
     pub atlas_material_index: u32,
 }
 
 impl Chunk {
     fn query_block(&self, x: usize, y: usize, z: usize) -> Blocks {
-        // println!("{},{},{}", x, y, z);
         BlockWrapper[self.blocks[y][x][z] as u32]
     }
 
@@ -77,69 +87,90 @@ impl Chunk {
         }
         neighbors
     }
+
+    pub const fn default_blocks() -> BlockArray {
+        let mut blocks: BlockArray = [[[1; Z_SIZE]; X_SIZE]; Y_SIZE];
+        blocks[Y_SIZE - 1] = [[0; Z_SIZE]; X_SIZE];
+        blocks
+    }
 }
 
 impl MeshTools for Chunk {
-    fn create_mesh(
-        &self,
-        device: &wgpu::Device,
-        mut mesh_manager: std::cell::RefMut<gamezap::model::MeshManager>,
-    ) {
-        let mut vertices = vec![];
-        let mut indices = vec![];
+    fn create_mesh(&self, device: &wgpu::Device, mesh_manager: Arc<Mutex<MeshManager>>) {
+        let mut vertices = vec![Vertex::blank(); MAX_VERTICES].into_boxed_slice();
+        let mut total_vertex_count = 0_usize;
+
+        let mut indices = vec![0_u32; MAX_INDICES].into_boxed_slice();
+        let mut total_index_count = 0_usize;
+
+        let beginning = Instant::now();
         for (y, slice) in self.blocks.iter().enumerate() {
             for (x, row) in slice.iter().enumerate() {
                 for (z, block) in row.iter().enumerate() {
                     let block_type = BlockWrapper[*block as u32];
+
                     if block_type != Blocks::Null {
                         let face_mask = self.query_neighbors(x, y, z);
                         if face_mask != 0 {
+                            let start_first_timer = Instant::now();
                             let block = Cube::new(
                                 "cube",
-                                self.position + na::Vector3::new(x as f32, y as f32, z as f32),
+                                na::Vector3::new(
+                                    self.position.x as f32,
+                                    0.0,
+                                    self.position.y as f32,
+                                ) * 16.0
+                                    + na::Vector3::new(x as f32, y as f32, z as f32),
                                 0,
                                 block_type,
                                 face_mask,
+                                true,
                             );
+                            let first_timer = Instant::now() - start_first_timer;
+                            if first_timer.as_micros() > 0 {
+                                // println!("Second timer: {:?}", first_timer);
+                            }
 
-                            let mut recalculated_vertices = block
-                                .vertices
-                                .iter()
-                                .map(|v| {
-                                    let old_position = na::Vector3::from_column_slice(&v.position);
-                                    let new_position: [f32; 3] =
-                                        (block.position + old_position).into();
+                            block.mesh_info.indices.iter().for_each(|&i| {
+                                if i != u32::MAX {
+                                    indices[total_index_count] = i + total_vertex_count as u32;
+                                    total_index_count += 1;
+                                }
+                            });
 
-                                    Vertex {
-                                        position: new_position,
-                                        tex_coords: v.tex_coords,
-                                        normal: v.normal,
-                                        bitangent: v.bitangent,
-                                        tangent: v.tangent,
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            let mut recalculated_indices = block
-                                .indices
-                                .iter()
-                                .map(|i| i + vertices.len() as u32)
-                                .collect::<Vec<_>>();
-                            vertices.append(&mut recalculated_vertices);
-                            indices.append(&mut recalculated_indices);
+                            let start_second_timer = Instant::now();
+                            let block_vertex_count = block.mesh_info.vertices.len();
+                            let vert_slice = &mut vertices[total_vertex_count..total_vertex_count + block_vertex_count];
+                            for (i, vert_slot) in vert_slice.iter_mut().enumerate() {
+                                *vert_slot = block.mesh_info.vertices[i];
+                            }
+                            total_vertex_count += block_vertex_count;
+                            let second_timer = Instant::now() - start_second_timer;
+                            if second_timer.as_micros() > 0 {
+                                // println!("Second timer: {:?}", second_timer);
+                            }
                         }
                     }
                 }
             }
         }
+        let elapsed = Instant::now() - beginning;
+        if elapsed.as_micros() > 0 {
+            // println!("Time elapsed: {:?}", elapsed);
+        }
+
+        let vertices = &vertices[..total_vertex_count];
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Chunk 1 vert buff"),
             usage: wgpu::BufferUsages::VERTEX,
-            contents: bytemuck::cast_slice(&vertices),
+            contents: bytemuck::cast_slice(vertices),
         });
+
+        let indices = &indices[..total_index_count];
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Chunk 1 index buff"),
             usage: wgpu::BufferUsages::INDEX,
-            contents: bytemuck::cast_slice(&indices),
+            contents: bytemuck::cast_slice(indices),
         });
 
         let mesh = Mesh::new(
@@ -154,6 +185,10 @@ impl MeshTools for Chunk {
             ),
             0,
         );
-        mesh_manager.diffuse_pipeline_models.push(mesh);
+        mesh_manager
+            .lock()
+            .unwrap()
+            .diffuse_pipeline_models
+            .push(mesh);
     }
 }

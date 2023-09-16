@@ -2,6 +2,7 @@ use std::{
     borrow::BorrowMut,
     cell::{Ref, RefCell, RefMut},
     rc::Rc,
+    sync::Arc,
 };
 
 use chunk_loader::ChunkLoader;
@@ -93,7 +94,7 @@ fn main() {
     let mesh_manager = renderer.module_manager.mesh_manager.as_ref().unwrap();
 
     let chunk_loader = ChunkLoader::load_chunks(na::Vector2::new(0.0, 0.0), texture_atlas.1);
-    chunk_loader.render_chunks(&renderer_device, &mesh_manager);
+    chunk_loader.render_chunks(&renderer_device, mesh_manager);
     let chunk_loader_frame_dependancy: RefCell<Box<dyn FrameDependancy>> =
         RefCell::new(Box::new(chunk_loader));
 
