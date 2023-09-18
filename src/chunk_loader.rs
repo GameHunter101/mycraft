@@ -6,17 +6,16 @@ use std::{
 use gamezap::{model::MeshManager, FrameDependancy};
 use lazy_static::lazy_static;
 use nalgebra as na;
-use threadpool::ThreadPool;
 
 use crate::{
-    chunk::{BlockArray, Chunk, X_SIZE, Y_SIZE, Z_SIZE},
+    chunk::{BlockArray, Chunk},
     utils::MeshTools,
 };
 
 pub const RENDER_DISTANCE: usize = 3;
 
 lazy_static! {
-    static ref ALL_CHUNKS: Box<[BlockArray; RENDER_DISTANCE]> =
+    pub static ref ALL_CHUNKS: Box<[BlockArray; RENDER_DISTANCE]> =
         Box::new([Chunk::default_blocks(); RENDER_DISTANCE]);
 }
 
@@ -35,14 +34,10 @@ impl ChunkLoader {
             na::Vector3::new(chunked_position.x as f32, 0.0, chunked_position.y as f32);
         ChunkLoader {
             chunks: (0..RENDER_DISTANCE)
-                .map(|i| {
-                    let chunk_ref: &'static BlockArray = &ALL_CHUNKS[i];
-                    Chunk {
-                        position: origin_coords.xz().map(|i| i as i32)
-                            + na::Vector2::new(0, i as i32),
-                        blocks: chunk_ref,
-                        atlas_material_index,
-                    }
+                .map(|i| Chunk {
+                    position: origin_coords.xz().map(|i| i as i32) + na::Vector2::new(0, i as i32),
+                    chunk_index: i,
+                    atlas_material_index,
                 })
                 .collect::<Vec<_>>()
                 .try_into()
@@ -60,10 +55,9 @@ impl ChunkLoader {
             let chunk_coords = self.chunks[RENDER_DISTANCE - 1].position + na::Vector2::new(0, 1);
             self.chunks.rotate_left(1);
             chunks_to_generate.push(chunk_coords);
-            let chunk_ref: &'static BlockArray = &ALL_CHUNKS[RENDER_DISTANCE - 1];
             self.chunks[RENDER_DISTANCE - 1] = Chunk {
                 position: self.chunks[RENDER_DISTANCE - 2].position + na::Vector2::new(0, 1),
-                blocks: chunk_ref,
+                chunk_index: RENDER_DISTANCE - 1,
                 atlas_material_index: self.atlas_material_index,
             };
         }

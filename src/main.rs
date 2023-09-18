@@ -2,7 +2,6 @@ use std::{
     borrow::BorrowMut,
     cell::{Ref, RefCell, RefMut},
     rc::Rc,
-    sync::Arc,
 };
 
 use chunk_loader::ChunkLoader;
@@ -146,12 +145,6 @@ fn recalculate_chunks(
     engine_systems: Ref<EngineSystems>,
     frame_dependancies: &mut Vec<RefMut<Box<dyn FrameDependancy>>>,
 ) {
-    // let camera_manager = &renderer.module_manager.camera_manager;
-    // if let Some(camera_manager) = camera_manager {
-    //     let camera_manager = camera_manager.borrow();
-    //     let camera = camera_manager.camera.borrow();
-    //     let mut chunk_loader = frame_dependancies[0].borrow_mut();
-    // }
     let chunk_loader = frame_dependancies[0].borrow_mut();
     chunk_loader.frame_update(engine_details, renderer, engine_systems);
 }
