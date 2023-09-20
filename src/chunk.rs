@@ -1,6 +1,6 @@
 use std::{
+    rc::Rc,
     sync::{Arc, Barrier, Mutex},
-    time::Instant,
 };
 
 use gamezap::model::{Mesh, MeshManager, MeshTransform, Vertex};
@@ -31,7 +31,7 @@ lazy_static! {
 
 pub type BlockArray = [[[u16; Z_SIZE]; X_SIZE]; Y_SIZE];
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Chunk {
     pub position: na::Vector2<i32>,
     pub chunk_index: usize,
@@ -105,10 +105,9 @@ impl Chunk {
 }
 
 impl MeshTools for Chunk {
-    fn create_mesh(&self, device: &wgpu::Device, mesh_manager: Arc<Mutex<MeshManager>>) {
+    fn create_mesh(&self, device: Arc<&wgpu::Device>, mesh_manager: Arc<Mutex<MeshManager>>) {
         let vertices = Arc::new(Mutex::new(VertexArray::default()));
 
-        let beginning = Instant::now();
         let chunk_ref: &'static BlockArray = &ALL_CHUNKS[self.chunk_index];
         let chunk_pos = self.position;
 
@@ -118,12 +117,9 @@ impl MeshTools for Chunk {
 
         let pools = ThreadPool::new(4);
         let slices_per_thread = 256 / 4;
-        let mut test_num = Arc::new(Mutex::new(0));
         for i in 0..4 {
             let vertices_clone = vertices.clone();
             let vert_gen_barrier_clone = vert_gen_barrier.clone();
-
-            let test_clone = test_num.clone();
 
             pools.execute(move || {
                 let y_offset = slices_per_thread * i;
@@ -156,8 +152,6 @@ impl MeshTools for Chunk {
                                         true,
                                     );
 
-                                    // *test_clone.lock().unwrap() += 1;
-
                                     vertices_clone.lock().unwrap().push(
                                         &block.mesh_info.vertices[..block.mesh_info.vertex_count],
                                     );
@@ -170,11 +164,6 @@ impl MeshTools for Chunk {
             });
         }
         vert_gen_barrier.wait();
-
-        let elapsed = Instant::now() - beginning;
-        if elapsed.as_micros() > 0 {
-            // println!("Time elapsed: {:?}", elapsed);
-        }
 
         let vertices_clone = vertices.clone();
         let vertex_count = vertices_clone.lock().unwrap().vertex_count;
@@ -192,8 +181,8 @@ impl MeshTools for Chunk {
             contents: bytemuck::cast_slice(&ALL_INDICES[..total_index_count]),
         });
 
-        let mesh = Mesh::new(
-            device,
+        let mesh = Arc::new(Mesh::new(
+            &device,
             "Chunk 1".to_string(),
             vertex_buffer,
             index_buffer,
@@ -203,12 +192,12 @@ impl MeshTools for Chunk {
                 na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), 0.0),
             ),
             0,
-        );
+        ));
         mesh_manager
             .lock()
             .unwrap()
             .diffuse_pipeline_models
-            .push(mesh);
+            .push(mesh.clone());
     }
 }
 
@@ -221,7 +210,7 @@ impl VertexArray {
     pub fn push(&mut self, verts: &[Vertex]) {
         let start_pos = self.vertex_count;
         self.vertex_count += verts.len();
-        let mut slice = &mut self.vertices[start_pos..self.vertex_count];
+        let slice = &mut self.vertices[start_pos..self.vertex_count];
         for (i, vert) in slice.iter_mut().enumerate() {
             *vert = verts[i];
         }

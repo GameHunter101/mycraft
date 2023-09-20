@@ -2,6 +2,7 @@ use std::{
     borrow::BorrowMut,
     cell::{Ref, RefCell, RefMut},
     rc::Rc,
+    sync::Arc,
 };
 
 use chunk_loader::ChunkLoader;
@@ -67,19 +68,19 @@ fn main() {
         .hide_cursor()
         .build();
 
-    let renderer = engine.renderer.borrow();
-    let renderer_device = &renderer.device;
+    let renderer = &engine.renderer;
+    let renderer_device = Arc::new(&renderer.device);
     let renderer_queue = &renderer.queue;
 
     let mut material_manager = renderer.module_manager.material_manager.borrow_mut();
 
     let texture_atlas = material_manager.new_material(
         "Texture Atlas",
-        renderer_device,
+        &renderer_device,
         Some(
             pollster::block_on(Texture::load_texture(
                 "atlas.png",
-                renderer_device,
+                &renderer_device,
                 renderer_queue,
                 false,
             ))
@@ -92,8 +93,16 @@ fn main() {
 
     let mesh_manager = renderer.module_manager.mesh_manager.as_ref().unwrap();
 
-    let chunk_loader = ChunkLoader::load_chunks(na::Vector2::new(0.0, 0.0), texture_atlas.1);
-    chunk_loader.render_chunks(&renderer_device, mesh_manager);
+    let chunk_loader = ChunkLoader::load_chunks(
+        na::Vector2::new(0.0, 0.0),
+        texture_atlas.1,
+        mesh_manager.lock().unwrap().diffuse_pipeline_models.len(),
+    );
+    ChunkLoader::render_chunks(
+        &chunk_loader.chunks.clone().read().unwrap().buffer,
+        renderer_device.clone(),
+        mesh_manager,
+    );
     let chunk_loader_frame_dependancy: RefCell<Box<dyn FrameDependancy>> =
         RefCell::new(Box::new(chunk_loader));
 
@@ -116,11 +125,11 @@ fn main() {
 
 fn input(
     engine_details: RefMut<EngineDetails>,
-    renderer: &RefCell<Renderer>,
+    renderer: &Renderer,
     engine_systems: Ref<EngineSystems>,
     _frame_dependancies: &mut Vec<RefMut<Box<dyn FrameDependancy>>>,
 ) {
-    let camera_manager = &renderer.borrow().module_manager.camera_manager;
+    let camera_manager = &renderer.module_manager.camera_manager;
     if let Some(camera_manager) = camera_manager {
         let camera_manager = camera_manager.borrow();
         let mut camera = camera_manager.camera.borrow_mut();
@@ -141,7 +150,7 @@ fn input(
 
 fn recalculate_chunks(
     engine_details: RefMut<EngineDetails>,
-    renderer: &RefCell<Renderer>,
+    renderer: &Renderer,
     engine_systems: Ref<EngineSystems>,
     frame_dependancies: &mut Vec<RefMut<Box<dyn FrameDependancy>>>,
 ) {
@@ -151,7 +160,7 @@ fn recalculate_chunks(
 
 fn toggle_cursor(
     mut engine_details: RefMut<EngineDetails>,
-    _renderer: &RefCell<Renderer>,
+    _renderer: &Renderer,
     engine_systems: Ref<EngineSystems>,
     _frame_dependancies: &mut Vec<RefMut<Box<dyn FrameDependancy>>>,
 ) {
