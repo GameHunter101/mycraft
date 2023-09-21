@@ -105,7 +105,7 @@ impl Chunk {
 }
 
 impl MeshTools for Chunk {
-    fn create_mesh(&self, device: Arc<&wgpu::Device>, mesh_manager: Arc<Mutex<MeshManager>>) {
+    fn create_mesh(&self, device: Arc<wgpu::Device>, mesh_manager: Arc<Mutex<MeshManager>>) {
         let vertices = Arc::new(Mutex::new(VertexArray::default()));
 
         let chunk_ref: &'static BlockArray = &ALL_CHUNKS[self.chunk_index];

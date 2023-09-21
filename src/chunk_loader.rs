@@ -6,6 +6,7 @@ use std::{
 use gamezap::{model::MeshManager, FrameDependancy};
 use lazy_static::lazy_static;
 use nalgebra as na;
+use threadpool::ThreadPool;
 
 use crate::{
     chunk::{BlockArray, Chunk},
@@ -82,18 +83,26 @@ impl ChunkLoader {
         // }
     }
     pub fn render_chunks(
-        chunks: &[Chunk],
-        device: Arc<&wgpu::Device>,
-        mesh_manager: &Arc<Mutex<MeshManager>>,
+        chunks: Vec<Arc<Chunk>>,
+        device: Arc<wgpu::Device>,
+        mesh_manager: Arc<Mutex<MeshManager>>,
     ) {
         // let barrier = Arc::new(Barrier::new(chunks.len() + 1));
         // let chunks = chunks.clone();
+        let pool = ThreadPool::new(chunks.len());
+        let barrier = Arc::new(Barrier::new(chunks.len() + 1));
         for chunk in chunks.iter() {
-        // let barrier_clone = barrier.clone();
-            chunk.create_mesh(device.clone(), mesh_manager.clone());
-            // barrier_clone.wait();
+            // let barrier_clone = barrier.clone();
+            let chunk = chunk.clone();
+            let device = device.clone();
+            let mesh_manager = mesh_manager.clone();
+            let barrier = barrier.clone();
+            pool.execute(move || {
+                chunk.create_mesh(device, mesh_manager);
+                barrier.wait();
+            });
         }
-        // barrier.wait();
+        barrier.clone().wait();
     }
 }
 
@@ -110,7 +119,12 @@ impl FrameDependancy for ChunkLoader {
             let chunked_position = position.map(|i| i as i32 / 16);
             let offset = chunked_position - self.center_chunk_position;
             if offset != na::Vector2::new(0, 0) {
-                let mesh_manager = renderer.module_manager.mesh_manager.as_ref().unwrap();
+                let mesh_manager = renderer
+                    .module_manager
+                    .mesh_manager
+                    .as_ref()
+                    .unwrap()
+                    .clone();
                 self.reload_chunks(offset);
 
                 let num_meshes = mesh_manager
@@ -128,10 +142,10 @@ impl FrameDependancy for ChunkLoader {
                         .remove(self.position_in_mesh_array);
                     // mesh_manager.clone().lock().unwrap().diffuse_pipeline_models = vec![];
                     // .drain(num_meshes..num_meshes + RENDER_DISTANCE);
-                    let device_arc = Arc::new(&renderer.device);
-                    let chunks = [self.chunks.clone().read().unwrap()[-1]];
+                    let device_arc = renderer.device.clone();
+                    let chunks = vec![Arc::new(self.chunks.clone().read().unwrap()[-1])];
                     // std::thread::spawn(move || {
-                    ChunkLoader::render_chunks(&chunks, device_arc.clone(), mesh_manager);
+                    ChunkLoader::render_chunks(chunks, device_arc, mesh_manager);
                     // });
                 }
                 self.center_chunk_position = chunked_position;

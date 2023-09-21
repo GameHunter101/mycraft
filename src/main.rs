@@ -69,8 +69,8 @@ fn main() {
         .build();
 
     let renderer = &engine.renderer;
-    let renderer_device = Arc::new(&renderer.device);
-    let renderer_queue = &renderer.queue;
+    let renderer_device = renderer.device.clone();
+    let renderer_queue = renderer.queue.clone();
 
     let mut material_manager = renderer.module_manager.material_manager.borrow_mut();
 
@@ -81,7 +81,7 @@ fn main() {
             pollster::block_on(Texture::load_texture(
                 "atlas.png",
                 &renderer_device,
-                renderer_queue,
+                &renderer_queue.clone(),
                 false,
             ))
             .unwrap(),
@@ -98,11 +98,16 @@ fn main() {
         texture_atlas.1,
         mesh_manager.lock().unwrap().diffuse_pipeline_models.len(),
     );
-    ChunkLoader::render_chunks(
-        &chunk_loader.chunks.clone().read().unwrap().buffer,
-        renderer_device.clone(),
-        mesh_manager,
-    );
+    let chunks = chunk_loader
+        .chunks
+        .clone()
+        .read()
+        .unwrap()
+        .buffer
+        .iter()
+        .map(|&c| Arc::new(c))
+        .collect::<Vec<_>>();
+    ChunkLoader::render_chunks(chunks, renderer_device.clone(), mesh_manager.clone());
     let chunk_loader_frame_dependancy: RefCell<Box<dyn FrameDependancy>> =
         RefCell::new(Box::new(chunk_loader));
 

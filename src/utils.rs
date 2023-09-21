@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use gamezap::model::MeshManager;
 
 pub trait MeshTools {
-    fn create_mesh(&self, device: Arc<&wgpu::Device>, mesh_manager: Arc<Mutex<MeshManager>>);
+    fn create_mesh(&self, device: Arc<wgpu::Device>, mesh_manager: Arc<Mutex<MeshManager>>);
 }
 
 pub struct RingBuffer<T> {
