@@ -24,7 +24,7 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let event_pump = sdl_context.event_pump().unwrap();
-    let window_size = (800, 600);
+    let window_size = (1200, 800);
     let window = Rc::new(
         video_subsystem
             .window("MyCraft", window_size.0, window_size.1)
@@ -97,17 +97,9 @@ fn main() {
         na::Vector2::new(0.0, 0.0),
         texture_atlas.1,
         mesh_manager.lock().unwrap().diffuse_pipeline_models.len(),
+        renderer_device.clone(),
+        mesh_manager.clone(),
     );
-    let chunks = chunk_loader
-        .chunks
-        .clone()
-        .read()
-        .unwrap()
-        .buffer
-        .iter()
-        .map(|&c| Arc::new(c))
-        .collect::<Vec<_>>();
-    ChunkLoader::render_chunks(chunks, renderer_device.clone(), mesh_manager.clone());
     let chunk_loader_frame_dependancy: RefCell<Box<dyn FrameDependancy>> =
         RefCell::new(Box::new(chunk_loader));
 

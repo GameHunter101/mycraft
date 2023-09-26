@@ -1,7 +1,4 @@
-use std::{
-    rc::Rc,
-    sync::{Arc, Mutex, MutexGuard},
-};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use gamezap::model::{Mesh, MeshManager, MeshTransform, Vertex};
 use lazy_static::lazy_static;
@@ -364,7 +361,7 @@ impl Cube {
 }
 
 impl MeshTools for Cube {
-    fn create_mesh(&self, device: Arc<wgpu::Device>, mesh_manager: Arc<Mutex<MeshManager>>) {
+    fn create_mesh(&self, device: Arc<wgpu::Device>, mesh_manager: Arc<Mutex<MeshManager>>) -> Arc<Mesh> {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Cube Vertex Buffer"),
             usage: wgpu::BufferUsages::VERTEX,
@@ -395,10 +392,11 @@ impl MeshTools for Cube {
             ),
             0,
         ));
-        mesh_manager
-            .lock()
-            .unwrap()
-            .diffuse_pipeline_models
-            .push(mesh.clone());
+        // mesh_manager
+        //     .lock()
+        //     .unwrap()
+        //     .diffuse_pipeline_models
+        //     .push(mesh.clone());
+        mesh
     }
 }

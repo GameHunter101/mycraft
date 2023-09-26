@@ -1,7 +1,4 @@
-use std::{
-    rc::Rc,
-    sync::{Arc, Barrier, Mutex},
-};
+use std::sync::{Arc, Barrier, Mutex};
 
 use gamezap::model::{Mesh, MeshManager, MeshTransform, Vertex};
 use lazy_static::lazy_static;
@@ -105,7 +102,11 @@ impl Chunk {
 }
 
 impl MeshTools for Chunk {
-    fn create_mesh(&self, device: Arc<wgpu::Device>, mesh_manager: Arc<Mutex<MeshManager>>) {
+    fn create_mesh(
+        &self,
+        device: Arc<wgpu::Device>,
+        mesh_manager: Arc<Mutex<MeshManager>>,
+    ) -> Arc<Mesh> {
         let vertices = Arc::new(Mutex::new(VertexArray::default()));
 
         let chunk_ref: &'static BlockArray = &ALL_CHUNKS[self.chunk_index];
@@ -136,16 +137,16 @@ impl MeshTools for Chunk {
                                     Self::query_neighbors(chunk_index, x, y + y_offset, z);
                                 if face_mask != 0 {
                                     let block = Cube::new(
-                                        na::Vector3::new(
+                                        /* na::Vector3::new(
                                             chunk_pos.x as f32,
                                             0.0,
                                             chunk_pos.y as f32,
-                                        ) * 16.0
-                                            + na::Vector3::new(
-                                                x as f32,
-                                                (y + y_offset) as f32,
-                                                z as f32,
-                                            ),
+                                        ),  */
+                                           na::Vector3::new(
+                                               x as f32,
+                                               (y + y_offset) as f32,
+                                               z as f32,
+                                           ),
                                         0,
                                         block_type,
                                         face_mask,
@@ -188,16 +189,29 @@ impl MeshTools for Chunk {
             index_buffer,
             total_index_count as u32,
             MeshTransform::new(
-                na::Vector3::new(0.0, 0.0, 0.0),
+                na::Vector3::new(
+                    self.position.x as f32 * 16.0,
+                    0.0,
+                    self.position.y as f32 * 16.0,
+                ),
                 na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), 0.0),
             ),
             0,
         ));
-        mesh_manager
-            .lock()
-            .unwrap()
-            .diffuse_pipeline_models
-            .push(mesh.clone());
+        /* if let Some(replace_index) = mesh_index_to_replace {
+            mesh_manager
+                .lock()
+                .unwrap()
+                .diffuse_pipeline_models
+                .remove(replace_index);
+            mesh_manager
+                .lock()
+                .unwrap()
+                .diffuse_pipeline_models
+                .push(mesh.clone());
+        } else {
+        } */
+        mesh
     }
 }
 
