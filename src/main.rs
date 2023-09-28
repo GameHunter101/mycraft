@@ -2,7 +2,6 @@ use std::{
     borrow::BorrowMut,
     cell::{Ref, RefCell, RefMut},
     rc::Rc,
-    sync::Arc,
 };
 
 use chunk_loader::ChunkLoader;

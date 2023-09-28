@@ -105,12 +105,12 @@ impl MeshTools for Chunk {
     fn create_mesh(
         &self,
         device: Arc<wgpu::Device>,
-        mesh_manager: Arc<Mutex<MeshManager>>,
+        _mesh_manager: Arc<Mutex<MeshManager>>,
     ) -> Arc<Mesh> {
         let vertices = Arc::new(Mutex::new(VertexArray::default()));
 
         let chunk_ref: &'static BlockArray = &ALL_CHUNKS[self.chunk_index];
-        let chunk_pos = self.position;
+        // let chunk_pos = self.position;
 
         let chunk_index = self.chunk_index;
 

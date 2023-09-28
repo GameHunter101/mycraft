@@ -1,6 +1,6 @@
 use std::{
     cell::RefMut,
-    sync::{Arc, Barrier, Mutex, RwLock},
+    sync::{Arc, Barrier, Mutex},
 };
 
 use gamezap::{
@@ -9,7 +9,6 @@ use gamezap::{
 };
 use lazy_static::lazy_static;
 use nalgebra as na;
-use threadpool::ThreadPool;
 
 use crate::{
     chunk::{BlockArray, Chunk},
@@ -43,13 +42,12 @@ impl ChunkLoader {
         let chunked_position = position.map(|i| (i / 16.0) as i32);
         let origin_coords =
             na::Vector3::new(chunked_position.x as f32, 0.0, chunked_position.y as f32);
-        let chunk_start = 0; //-(RENDER_DISTANCE as i32 / 2);
-        let chunks = (0..RENDER_DISTANCE)
+        let chunks = (0..2 * RENDER_DISTANCE + 1)
             .map(|i| {
                 Arc::new(Chunk {
                     position: origin_coords.xz().map(|i| i as i32)
-                        + na::Vector2::new(0, i as i32 + chunk_start),
-                    chunk_index: i,
+                        + na::Vector2::new(0, i as i32 - RENDER_DISTANCE as i32),
+                    chunk_index: 0,
                     atlas_material_index,
                 })
             })
@@ -73,7 +71,7 @@ impl ChunkLoader {
         }
     }
 
-    fn debug_chunk_positions(&self) -> String {
+    fn _debug_chunk_positions(&self) -> String {
         let chunks = &self.chunks.buffer;
         format!(
             "{:?}, {:?}, {:?}",
@@ -81,7 +79,12 @@ impl ChunkLoader {
         )
     }
 
-    pub fn reload_chunks(&mut self, offset: na::Vector2<i32>) {
+    pub fn reload_chunks(
+        &mut self,
+        offset: na::Vector2<i32>,
+        device: Arc<wgpu::Device>,
+        mesh_manager: Arc<Mutex<MeshManager>>,
+    ) {
         if offset.y == -1 {
             let chunk_coords = self.chunks[-1].position + na::Vector2::new(0, 1);
             self.chunks.rotate_left(1);
@@ -90,17 +93,36 @@ impl ChunkLoader {
                 chunk_index: RENDER_DISTANCE - 1,
                 atlas_material_index: self.atlas_material_index,
             }));
+            let new_chunks = ChunkLoader::render_chunks(
+                vec![self.chunks[-1].clone()],
+                device.clone(),
+                mesh_manager.clone(),
+            )
+            .clone();
+            for chunk in new_chunks.lock().unwrap().iter() {
+                self.chunk_meshes.rotate_left(1);
+                self.chunk_meshes.replace_last(chunk.clone());
+            }
         }
-        // if offset.y == 1 {
-        //     let chunk_coords = self.chunks.read().unwrap()[0].position + na::Vector2::new(0, -1);
-        //     self.chunks.clone().write().unwrap().rotate_right(1);
-        //     self.chunks.clone().write().unwrap().replace_first(Chunk {
-        //         position: chunk_coords,
-        //         chunk_index: RENDER_DISTANCE - 1,
-        //         atlas_material_index: self.atlas_material_index,
-        //     })
-        // }
-        self.center_chunk_position += offset;
+        if offset.y == 1 {
+            let chunk_coords = self.chunks[0].position + na::Vector2::new(0, -1);
+            self.chunks.rotate_right(1);
+            self.chunks.replace_first(Arc::new(Chunk {
+                position: chunk_coords,
+                chunk_index: RENDER_DISTANCE - 1,
+                atlas_material_index: self.atlas_material_index,
+            }));
+            let new_chunks = ChunkLoader::render_chunks(
+                vec![self.chunks[0].clone()],
+                device.clone(),
+                mesh_manager.clone(),
+            )
+            .clone();
+            for chunk in new_chunks.lock().unwrap().iter() {
+                self.chunk_meshes.rotate_right(1);
+                self.chunk_meshes.replace_first(chunk.clone());
+            }
+        }
     }
 
     pub fn render_chunks(
@@ -153,18 +175,9 @@ impl FrameDependancy for ChunkLoader {
                     .as_ref()
                     .unwrap()
                     .clone();
-                self.reload_chunks(offset);
                 let device_arc = renderer.device.clone();
-                let chunks = vec![self.chunks[-1].clone()];
-                let new_chunks =
-                    ChunkLoader::render_chunks(chunks, device_arc, mesh_manager).clone();
-                for chunk in new_chunks.lock().unwrap().iter() {
-                    self.chunk_meshes.rotate_left(1);
-                    self.chunk_meshes.replace_last(chunk.clone());
-                }
+                self.reload_chunks(offset, device_arc, mesh_manager);
                 self.is_pipeline_updated = false;
-
-                self.center_chunk_position = chunked_position;
             }
             if !self.is_pipeline_updated {
                 let mesh_manager = renderer
@@ -198,6 +211,7 @@ impl FrameDependancy for ChunkLoader {
                     }
                 }
                 self.is_pipeline_updated = true;
+                self.center_chunk_position = chunked_position;
                 // mesh_manager.clone().lock().unwrap().diffuse_pipeline_models[]
             }
         }

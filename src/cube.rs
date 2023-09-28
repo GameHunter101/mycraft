@@ -361,7 +361,7 @@ impl Cube {
 }
 
 impl MeshTools for Cube {
-    fn create_mesh(&self, device: Arc<wgpu::Device>, mesh_manager: Arc<Mutex<MeshManager>>) -> Arc<Mesh> {
+    fn create_mesh(&self, device: Arc<wgpu::Device>, _mesh_manager: Arc<Mutex<MeshManager>>) -> Arc<Mesh> {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Cube Vertex Buffer"),
             usage: wgpu::BufferUsages::VERTEX,
