@@ -7,7 +7,7 @@ use threadpool::ThreadPool;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    chunk_loader::ALL_CHUNKS,
+    chunk_loader::{ALL_CHUNKS, RENDERED_CHUNKS_LENGTH},
     cube::{BlockWrapper, Blocks, Cube, FACE_INDICES},
     utils::MeshTools,
 };
@@ -31,7 +31,7 @@ pub type BlockArray = [[[u16; Z_SIZE]; X_SIZE]; Y_SIZE];
 #[derive(Debug, Clone, Copy)]
 pub struct Chunk {
     pub position: na::Vector2<i32>,
-    pub chunk_index: usize,
+    pub chunk_index: (usize, usize),
     pub atlas_material_index: u32,
 }
 
@@ -51,14 +51,20 @@ impl Chunk {
                 neighbors |= 0b0000_0001;
             }
         } else {
-            neighbors |= 0b0000_0001;
+            if chunk_index > 0 && Self::query_block(chunk_index - 1, x, y, 0) == Blocks::Null {
+                neighbors |= 0b0000_0001;
+            }
         }
         if z < Z_SIZE - 1 {
             if Self::query_block(chunk_index, x, y, z + 1) == Blocks::Null {
                 neighbors |= 0b0000_0010;
             }
         } else {
-            neighbors |= 0b0000_0010;
+            if chunk_index < RENDERED_CHUNKS_LENGTH
+                && Self::query_block(chunk_index + 1, x, y, Z_SIZE - 1) == Blocks::Null
+            {
+                neighbors |= 0b0000_0010;
+            }
         }
 
         if x > 0 {
@@ -109,7 +115,8 @@ impl MeshTools for Chunk {
     ) -> Arc<Mesh> {
         let vertices = Arc::new(Mutex::new(VertexArray::default()));
 
-        let chunk_ref: &'static BlockArray = &ALL_CHUNKS[self.chunk_index];
+        let chunk_ref: &'static BlockArray =
+            &ALL_CHUNKS[RENDERED_CHUNKS_LENGTH * self.chunk_index.0 + self.chunk_index.1];
         // let chunk_pos = self.position;
 
         let chunk_index = self.chunk_index;
@@ -133,8 +140,12 @@ impl MeshTools for Chunk {
                             let block_type = BlockWrapper[*block as u32];
 
                             if block_type != Blocks::Null {
-                                let face_mask =
-                                    Self::query_neighbors(chunk_index, x, y + y_offset, z);
+                                let face_mask = Self::query_neighbors(
+                                    chunk_index.0 * RENDERED_CHUNKS_LENGTH + chunk_index.1,
+                                    x,
+                                    y + y_offset,
+                                    z,
+                                );
                                 if face_mask != 0 {
                                     let block = Cube::new(
                                         /* na::Vector3::new(
@@ -142,11 +153,7 @@ impl MeshTools for Chunk {
                                             0.0,
                                             chunk_pos.y as f32,
                                         ),  */
-                                           na::Vector3::new(
-                                               x as f32,
-                                               (y + y_offset) as f32,
-                                               z as f32,
-                                           ),
+                                        na::Vector3::new(x as f32, (y + y_offset) as f32, z as f32),
                                         0,
                                         block_type,
                                         face_mask,

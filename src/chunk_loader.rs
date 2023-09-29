@@ -16,10 +16,12 @@ use crate::{
 };
 
 pub const RENDER_DISTANCE: usize = 3;
+pub const RENDERED_CHUNKS_LENGTH: usize = 2 * RENDER_DISTANCE + 1;
 
 lazy_static! {
-    pub static ref ALL_CHUNKS: Box<[BlockArray; RENDER_DISTANCE]> =
-        Box::new([Chunk::default_blocks(); RENDER_DISTANCE]);
+    pub static ref ALL_CHUNKS: Box<[BlockArray]> =
+        vec![Chunk::default_blocks(); RENDERED_CHUNKS_LENGTH * RENDERED_CHUNKS_LENGTH]
+            .into_boxed_slice();
 }
 
 pub struct ChunkLoader {
@@ -47,7 +49,7 @@ impl ChunkLoader {
                 Arc::new(Chunk {
                     position: origin_coords.xz().map(|i| i as i32)
                         + na::Vector2::new(0, i as i32 - RENDER_DISTANCE as i32),
-                    chunk_index: 0,
+                    chunk_index: (0, 0),
                     atlas_material_index,
                 })
             })
@@ -90,7 +92,7 @@ impl ChunkLoader {
             self.chunks.rotate_left(1);
             self.chunks.replace_last(Arc::new(Chunk {
                 position: chunk_coords,
-                chunk_index: RENDER_DISTANCE - 1,
+                chunk_index: (0, RENDER_DISTANCE - 1),
                 atlas_material_index: self.atlas_material_index,
             }));
             let new_chunks = ChunkLoader::render_chunks(
@@ -109,7 +111,7 @@ impl ChunkLoader {
             self.chunks.rotate_right(1);
             self.chunks.replace_first(Arc::new(Chunk {
                 position: chunk_coords,
-                chunk_index: RENDER_DISTANCE - 1,
+                chunk_index: (0, RENDER_DISTANCE - 1),
                 atlas_material_index: self.atlas_material_index,
             }));
             let new_chunks = ChunkLoader::render_chunks(
