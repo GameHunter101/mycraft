@@ -1,11 +1,10 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 
-use gamezap::model::{Mesh, MeshManager, MeshTransform, Vertex};
+use gamezap::model::Vertex;
 use lazy_static::lazy_static;
 use nalgebra as na;
-use wgpu::util::DeviceExt;
 
-use crate::{utils::MeshTools, ATLAS_SIZE};
+use crate::ATLAS_SIZE;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Blocks {
@@ -357,46 +356,5 @@ impl Cube {
             material_index,
             mesh_info,
         }
-    }
-}
-
-impl MeshTools for Cube {
-    fn create_mesh(&self, device: Arc<wgpu::Device>, _mesh_manager: Arc<Mutex<MeshManager>>) -> Arc<Mesh> {
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Cube Vertex Buffer"),
-            usage: wgpu::BufferUsages::VERTEX,
-            contents: &bytemuck::cast_slice(
-                &self.mesh_info.vertices[..self.mesh_info.vertex_count],
-            ),
-        });
-
-        let indices = (0_u32..self.mesh_info.vertex_count as u32 / 4)
-            .flat_map(|face_index| FACE_INDICES.map(|i| 4 * i + face_index))
-            .collect::<Vec<_>>();
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Cube Index Buffer"),
-            usage: wgpu::BufferUsages::INDEX,
-            contents: &bytemuck::cast_slice(&indices),
-        });
-
-        let mesh = Arc::new(Mesh::new(
-            &device,
-            "Cube".to_string(),
-            vertex_buffer,
-            index_buffer,
-            (self.mesh_info.vertex_count as f32 * 1.5) as u32,
-            MeshTransform::new(
-                self.position,
-                na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), 0.0),
-            ),
-            0,
-        ));
-        // mesh_manager
-        //     .lock()
-        //     .unwrap()
-        //     .diffuse_pipeline_models
-        //     .push(mesh.clone());
-        mesh
     }
 }

@@ -1,6 +1,9 @@
-use std::sync::{Arc, Barrier, Mutex};
+use std::{
+    fmt::Debug,
+    sync::{Arc, Barrier, Mutex},
+};
 
-use gamezap::model::{Mesh, MeshManager, MeshTransform, Vertex};
+use gamezap::model::{Mesh, MeshTransform, Vertex};
 use lazy_static::lazy_static;
 use nalgebra as na;
 use threadpool::ThreadPool;
@@ -9,7 +12,6 @@ use wgpu::util::DeviceExt;
 use crate::{
     chunk_loader::{ALL_CHUNKS, RENDERED_CHUNKS_LENGTH},
     cube::{BlockWrapper, Blocks, Cube, FACE_INDICES},
-    utils::MeshTools,
 };
 
 pub const X_SIZE: usize = 16;
@@ -28,7 +30,7 @@ lazy_static! {
 
 pub type BlockArray = [[[u16; Z_SIZE]; X_SIZE]; Y_SIZE];
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Chunk {
     pub position: na::Vector2<i32>,
     pub chunk_index: (usize, usize),
@@ -105,14 +107,8 @@ impl Chunk {
         blocks[Y_SIZE - 1] = [[0; Z_SIZE]; X_SIZE];
         blocks
     }
-}
 
-impl MeshTools for Chunk {
-    fn create_mesh(
-        &self,
-        device: Arc<wgpu::Device>,
-        _mesh_manager: Arc<Mutex<MeshManager>>,
-    ) -> Arc<Mesh> {
+    pub fn create_mesh(&self, device: Arc<wgpu::Device>) -> Arc<Mesh> {
         let vertices = Arc::new(Mutex::new(VertexArray::default()));
 
         let chunk_ref: &'static BlockArray =
@@ -205,20 +201,13 @@ impl MeshTools for Chunk {
             ),
             0,
         ));
-        /* if let Some(replace_index) = mesh_index_to_replace {
-            mesh_manager
-                .lock()
-                .unwrap()
-                .diffuse_pipeline_models
-                .remove(replace_index);
-            mesh_manager
-                .lock()
-                .unwrap()
-                .diffuse_pipeline_models
-                .push(mesh.clone());
-        } else {
-        } */
         mesh
+    }
+}
+
+impl Debug for Chunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "x: {}, y: {}", self.position.x, self.position.y)
     }
 }
 

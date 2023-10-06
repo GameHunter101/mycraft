@@ -15,7 +15,10 @@ use sdl2::keyboard::Keycode;
 mod chunk;
 mod chunk_loader;
 mod cube;
-mod utils;
+mod ring_buffer;
+
+#[cfg(test)]
+mod test;
 
 const ATLAS_SIZE: f32 = 256.0;
 
@@ -97,7 +100,6 @@ fn main() {
         texture_atlas.1,
         mesh_manager.lock().unwrap().diffuse_pipeline_models.len(),
         renderer_device.clone(),
-        mesh_manager.clone(),
     );
     let chunk_loader_frame_dependancy: RefCell<Box<dyn FrameDependancy>> =
         RefCell::new(Box::new(chunk_loader));
