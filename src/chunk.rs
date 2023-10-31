@@ -1,6 +1,10 @@
 use std::{
     fmt::Debug,
-    sync::{Arc, Barrier, Mutex},
+    mem::transmute,
+    sync::{
+        atomic::{AtomicUsize, Ordering::Relaxed},
+        Arc, Barrier, Mutex,
+    },
 };
 
 use gamezap::model::{Mesh, MeshTransform, Vertex};
@@ -18,6 +22,9 @@ pub const X_SIZE: usize = 16;
 pub const Y_SIZE: usize = 256;
 pub const Z_SIZE: usize = 16;
 
+pub const HORIZONTAL_SLICE_SIZE: usize = X_SIZE * Z_SIZE;
+pub const BLOCK_COUNT: usize = Z_SIZE * X_SIZE * Y_SIZE;
+
 pub const MAX_VERTICES: usize = (24 * Z_SIZE * X_SIZE * Y_SIZE) / 2;
 pub const MAX_INDICES: usize = (36 * Z_SIZE * X_SIZE * Y_SIZE) / 2;
 
@@ -28,7 +35,7 @@ lazy_static! {
         .into_boxed_slice();
 }
 
-pub type BlockArray = [[[u16; Z_SIZE]; X_SIZE]; Y_SIZE];
+pub type BlockArray = [u16; Z_SIZE * X_SIZE * Y_SIZE];
 
 #[derive(Clone, Copy)]
 pub struct Chunk {
@@ -39,7 +46,7 @@ pub struct Chunk {
 
 impl Chunk {
     fn query_block(chunk_index: usize, x: usize, y: usize, z: usize) -> Blocks {
-        BlockWrapper[ALL_CHUNKS[chunk_index][y][x][z] as u32]
+        BlockWrapper[ALL_CHUNKS[chunk_index][y * HORIZONTAL_SLICE_SIZE + x * X_SIZE + z] as u32]
     }
 
     /// Returns a bitmask of which faces have neighboring blocks
@@ -74,14 +81,22 @@ impl Chunk {
                 neighbors |= 0b0000_0100;
             }
         } else {
-            neighbors |= 0b0000_0100;
+            if chunk_index > RENDERED_CHUNKS_LENGTH
+                && Self::query_block(chunk_index - RENDERED_CHUNKS_LENGTH, x, y, z) == Blocks::Null
+            {
+                neighbors |= 0b0000_0100;
+            }
         }
         if x < X_SIZE - 1 {
             if Self::query_block(chunk_index, x + 1, y, z) == Blocks::Null {
                 neighbors |= 0b0000_1000;
             }
         } else {
-            neighbors |= 0b0000_1000;
+            if chunk_index < RENDERED_CHUNKS_LENGTH * (RENDERED_CHUNKS_LENGTH - 1)
+                && Self::query_block(chunk_index + RENDERED_CHUNKS_LENGTH, x, y, z) == Blocks::Null
+            {
+                neighbors |= 0b0000_1000;
+            }
         }
 
         if y > 0 {
@@ -96,112 +111,118 @@ impl Chunk {
                 neighbors |= 0b0010_0000;
             }
         } else {
-            // println!("{},{},{}", x, y, z);
             neighbors |= 0b0010_0000;
         }
         neighbors
     }
 
     pub const fn default_blocks() -> BlockArray {
-        let mut blocks: BlockArray = [[[1; Z_SIZE]; X_SIZE]; Y_SIZE];
+        let mut blocks = [[[1_u16; Z_SIZE]; X_SIZE]; Y_SIZE];
         blocks[Y_SIZE - 1] = [[0; Z_SIZE]; X_SIZE];
-        blocks
+        unsafe { std::mem::transmute(blocks) }
+    }
+
+    pub fn gen_block_vertices<'a>(
+        chunk_index: (usize, usize),
+        x: usize,
+        y: usize,
+        z: usize,
+    ) -> Vec<Vertex> {
+        let chunk_index = chunk_index.0 * RENDERED_CHUNKS_LENGTH + chunk_index.1;
+        let block_type = Self::query_block(chunk_index, x, y, z);
+
+        if block_type != Blocks::Null {
+            let face_mask = Self::query_neighbors(chunk_index, x, y, z);
+            if face_mask != 0 {
+                let block = Cube::new(
+                    na::Vector3::new(x as f32, y as f32, z as f32),
+                    0,
+                    block_type,
+                    face_mask,
+                    true,
+                );
+
+                return (&block.mesh_info.vertices[..block.mesh_info.vertex_count]).to_vec();
+                // vertices_clone.lock().unwrap().push(
+                //     &block.mesh_info.vertices
+                //         [..block.mesh_info.vertex_count],
+                // );
+            } else {
+                return vec![];
+            }
+        } else {
+            return vec![];
+        }
     }
 
     pub fn create_mesh(&self, device: Arc<wgpu::Device>) -> Arc<Mesh> {
-        let vertices = Arc::new(Mutex::new(VertexArray::default()));
+        // let pool = rayon::ThreadPoolBuilder::new()
+        //     .num_threads(8)
+        //     .build()
+        //     .unwrap();
+        let pool = ThreadPool::new(30);
 
-        let chunk_ref: &'static BlockArray =
-            &ALL_CHUNKS[RENDERED_CHUNKS_LENGTH * self.chunk_index.0 + self.chunk_index.1];
-        // let chunk_pos = self.position;
+        let vertices_2d: Arc<Mutex<Vec<Vec<Vertex>>>> =
+            Arc::new(Mutex::new(Vec::with_capacity(MAX_VERTICES)));
+        let vertices_count = Arc::new(AtomicUsize::new(0));
 
-        let chunk_index = self.chunk_index;
+        let vertices_count_clone = vertices_count.clone();
+        (0..BLOCK_COUNT).into_iter().for_each(|block_index| {
+            let vertices_2d = vertices_2d.clone();
+            let chunk_index = self.chunk_index;
+            let vertices_count = vertices_count.clone();
+            pool.execute(move || {
+                let y_pos = block_index / HORIZONTAL_SLICE_SIZE;
+                let x_pos = block_index % HORIZONTAL_SLICE_SIZE / X_SIZE;
+                let z_pos = block_index % HORIZONTAL_SLICE_SIZE % X_SIZE;
 
-        let vert_gen_barrier = Arc::new(Barrier::new(5));
-
-        let pools = ThreadPool::new(4);
-        let slices_per_thread = 256 / 4;
-        for i in 0..4 {
-            let vertices_clone = vertices.clone();
-            let vert_gen_barrier_clone = vert_gen_barrier.clone();
-
-            pools.execute(move || {
-                let y_offset = slices_per_thread * i;
-                for (y, slice) in (&chunk_ref[y_offset..slices_per_thread * (i + 1)])
-                    .iter()
-                    .enumerate()
-                {
-                    for (x, row) in slice.iter().enumerate() {
-                        for (z, block) in row.iter().enumerate() {
-                            let block_type = BlockWrapper[*block as u32];
-
-                            if block_type != Blocks::Null {
-                                let face_mask = Self::query_neighbors(
-                                    chunk_index.0 * RENDERED_CHUNKS_LENGTH + chunk_index.1,
-                                    x,
-                                    y + y_offset,
-                                    z,
-                                );
-                                if face_mask != 0 {
-                                    let block = Cube::new(
-                                        /* na::Vector3::new(
-                                            chunk_pos.x as f32,
-                                            0.0,
-                                            chunk_pos.y as f32,
-                                        ),  */
-                                        na::Vector3::new(x as f32, (y + y_offset) as f32, z as f32),
-                                        0,
-                                        block_type,
-                                        face_mask,
-                                        true,
-                                    );
-
-                                    vertices_clone.lock().unwrap().push(
-                                        &block.mesh_info.vertices[..block.mesh_info.vertex_count],
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-                vert_gen_barrier_clone.wait();
+                let verts = Self::gen_block_vertices(chunk_index, x_pos, y_pos, z_pos);
+                vertices_2d.lock().unwrap().push(verts);
+                vertices_count.fetch_add(1, Relaxed);
             });
-        }
-        vert_gen_barrier.wait();
-
-        let vertices_clone = vertices.clone();
-        let vertex_count = vertices_clone.lock().unwrap().vertex_count;
-        let vertices = &vertices_clone.lock().unwrap().vertices[..vertex_count];
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Chunk 1 vert buff"),
-            usage: wgpu::BufferUsages::VERTEX,
-            contents: bytemuck::cast_slice(vertices),
         });
 
-        let total_index_count = (vertex_count as f32 * 1.5) as usize;
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Chunk 1 index buff"),
-            usage: wgpu::BufferUsages::INDEX,
-            contents: bytemuck::cast_slice(&ALL_INDICES[..total_index_count]),
-        });
+        let position_x = self.position.x as f32;
+        let position_y = self.position.y as f32;
+        std::thread::spawn(move || loop {
+            let vertices_count = vertices_count_clone.clone().load(Relaxed);
+            if vertices_count == BLOCK_COUNT {
+                let vertices = vertices_2d.lock().unwrap()[..vertices_count].concat();
+                let vertices_len = vertices_count;
+                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Chunk 1 vert buff"),
+                    usage: wgpu::BufferUsages::VERTEX,
+                    contents: bytemuck::cast_slice(&vertices),
+                });
 
-        let mesh = Arc::new(Mesh::new(
-            &device,
-            "Chunk 1".to_string(),
-            vertex_buffer,
-            index_buffer,
-            total_index_count as u32,
-            MeshTransform::new(
-                na::Vector3::new(
-                    self.position.x as f32 * 16.0,
-                    0.0,
-                    self.position.y as f32 * 16.0,
-                ),
-                na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), 0.0),
-            ),
-            0,
-        ));
-        mesh
+                let total_index_count = (vertices_len as f32 * 1.5) as usize;
+                let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Chunk 1 index buff"),
+                    usage: wgpu::BufferUsages::INDEX,
+                    contents: bytemuck::cast_slice(&ALL_INDICES[..total_index_count]),
+                });
+
+                let mesh = Arc::new(Mesh::new(
+                    &device,
+                    "Chunk 1".to_string(),
+                    vertex_buffer,
+                    index_buffer,
+                    total_index_count as u32,
+                    MeshTransform::new(
+                        na::Vector3::new(
+                            position_x * 16.0,
+                            0.0,
+                            position_y * 16.0,
+                        ),
+                        na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), 0.0),
+                    ),
+                    0,
+                ));
+                return mesh;
+            }
+        })
+        .join()
+        .unwrap()
     }
 }
 

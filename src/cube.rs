@@ -16,6 +16,7 @@ pub enum Blocks {
 const FACE_TEXTURE_OFFSET: f32 = 16.0 / ATLAS_SIZE;
 pub const FACE_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 
+#[derive(Debug)]
 pub struct BlockWrapper;
 
 impl std::ops::Index<u32> for BlockWrapper {
@@ -42,27 +43,20 @@ impl Blocks {
 
 pub struct MeshInfo {
     pub vertices: [Vertex; 24],
-    // pub indices: [u32; 36],
     pub vertex_count: usize,
-    // index_count: usize,
-    // previous_index: u32,
 }
 
 impl MeshInfo {
     pub fn init() -> Self {
         MeshInfo {
             vertices: [Vertex::blank(); 24],
-            // indices: [u32::MAX; 36],
             vertex_count: 0,
-            // index_count: 0,
-            // previous_index: 0,
         }
     }
 
     pub fn append_data(
         &mut self,
         new_vertices: MutexGuard<[Vertex; 4]>,
-        // new_indices: &[u32; 6],
         coords: (f32, f32),
         vertex_offset: na::Vector3<f32>,
     ) {
@@ -79,13 +73,6 @@ impl MeshInfo {
             old_vert.tex_coords[1] += coords.1;
         }
         self.vertex_count += 4;
-
-        // let slice = &mut self.indices[self.index_count..self.index_count + 6];
-        // for (i, old_index) in slice.iter_mut().enumerate() {
-        //     *old_index = new_indices[i] + self.previous_index;
-        // }
-        // self.previous_index += new_indices[5] + 1;
-        // self.index_count += 6;
     }
 }
 

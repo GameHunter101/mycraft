@@ -209,14 +209,14 @@ impl<T: Clone + Debug> RingBuffer2D<T> {
         self.buffer.len()
     }
 
-    pub fn flatten(&self) -> Vec<&T> {
+    pub fn flatten(&self) -> Vec<T> {
         let mut size = self.into_iter().map(|e| e.len()).sum();
         let mut flattened = Vec::with_capacity(size);
         let mut count = 0;
         for z_slice in self.into_iter() {
             count += 1;
             for e in z_slice.into_iter() {
-                flattened.push(e);
+                flattened.push(e.clone());
             }
         }
         flattened

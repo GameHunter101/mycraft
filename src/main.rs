@@ -18,7 +18,10 @@ mod cube;
 mod ring_buffer;
 
 #[cfg(test)]
-mod test;
+mod tests {
+    pub mod chunk_threading;
+    pub mod ring_buffer;
+}
 
 const ATLAS_SIZE: f32 = 256.0;
 
