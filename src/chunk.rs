@@ -2,7 +2,7 @@ use std::{
     fmt::Debug,
     mem::transmute,
     sync::{
-        atomic::{AtomicUsize, Ordering::Relaxed},
+        atomic::{AtomicI64, AtomicUsize, Ordering::Relaxed},
         Arc, Barrier, Mutex,
     },
 };
@@ -160,6 +160,7 @@ impl Chunk {
         //     .num_threads(8)
         //     .build()
         //     .unwrap();
+        let start_time = time::Instant::now();
         let pool = ThreadPool::new(30);
 
         let vertices_2d: Arc<Mutex<Vec<Vec<Vertex>>>> =
@@ -167,11 +168,14 @@ impl Chunk {
         let vertices_count = Arc::new(AtomicUsize::new(0));
 
         let vertices_count_clone = vertices_count.clone();
+        let total_time = Arc::new(AtomicI64::new(0));
         (0..BLOCK_COUNT).into_iter().for_each(|block_index| {
+            let total_time = total_time.clone();
             let vertices_2d = vertices_2d.clone();
             let chunk_index = self.chunk_index;
             let vertices_count = vertices_count.clone();
             pool.execute(move || {
+                let start_time = time::Instant::now();
                 let y_pos = block_index / HORIZONTAL_SLICE_SIZE;
                 let x_pos = block_index % HORIZONTAL_SLICE_SIZE / X_SIZE;
                 let z_pos = block_index % HORIZONTAL_SLICE_SIZE % X_SIZE;
@@ -179,6 +183,10 @@ impl Chunk {
                 let verts = Self::gen_block_vertices(chunk_index, x_pos, y_pos, z_pos);
                 vertices_2d.lock().unwrap().push(verts);
                 vertices_count.fetch_add(1, Relaxed);
+                let current_elapsed_time =
+                    (time::Instant::now() - start_time).whole_nanoseconds() as i64;
+                // println!("current elapsed: {}", current_elapsed_time);
+                total_time.fetch_add(current_elapsed_time, Relaxed);
             });
         });
 
@@ -187,8 +195,17 @@ impl Chunk {
         std::thread::spawn(move || loop {
             let vertices_count = vertices_count_clone.clone().load(Relaxed);
             if vertices_count == BLOCK_COUNT {
+                let chunk_generation_time = time::Instant::now();
+                let average_time = (total_time.load(Relaxed) / BLOCK_COUNT as i64) as f32 / 1000000.0;
+                println!(
+                    "Chunk generation time: {}, average chunk time: {}, total chunk time: {}",
+                    (chunk_generation_time - start_time).whole_milliseconds(),
+                    average_time,
+                    total_time.load(Relaxed) as f32 / 1000000.0
+                );
                 let vertices = vertices_2d.lock().unwrap()[..vertices_count].concat();
                 let vertices_len = vertices_count;
+
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Chunk 1 vert buff"),
                     usage: wgpu::BufferUsages::VERTEX,
@@ -209,11 +226,7 @@ impl Chunk {
                     index_buffer,
                     total_index_count as u32,
                     MeshTransform::new(
-                        na::Vector3::new(
-                            position_x * 16.0,
-                            0.0,
-                            position_y * 16.0,
-                        ),
+                        na::Vector3::new(position_x * 16.0, 0.0, position_y * 16.0),
                         na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), 0.0),
                     ),
                     0,
