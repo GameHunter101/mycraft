@@ -1,201 +1,153 @@
-use std::{cell::RefMut, sync::Arc};
+use std::{
+    borrow::Borrow,
+    cell::RefMut,
+    sync::{Arc, Mutex},
+};
 
-use gamezap::{model::Mesh, FrameDependancy};
+use gamezap::{model::MeshManager, FrameDependancy};
 use lazy_static::lazy_static;
 use nalgebra as na;
-use rayon::prelude::*;
 
 use crate::{
     chunk::{BlockArray, Chunk},
-    ring_buffer::{RingBuffer, RingBuffer2D},
+    ring_buffer::RingBuffer2D,
 };
 
-pub const RENDER_DISTANCE: usize = 4;
+pub const RENDER_DISTANCE: usize = 1;
 pub const RENDERED_CHUNKS_LENGTH: usize = 2 * RENDER_DISTANCE + 1;
 
 lazy_static! {
-    pub static ref ALL_CHUNKS: Box<[BlockArray]> =
-        vec![Chunk::default_blocks(); RENDERED_CHUNKS_LENGTH * RENDERED_CHUNKS_LENGTH]
-            .into_boxed_slice();
+    pub static ref ALL_BLOCK_STATES: RingBuffer2D<BlockArray> = RingBuffer2D::new(
+        (0..RENDERED_CHUNKS_LENGTH)
+            .map(|_| (0..RENDERED_CHUNKS_LENGTH)
+                .map(|_| Chunk::default_blocks())
+                .collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+    );
 }
 
+/// Chunks [RingBuffer2D] is shaped like this:
+/// .| | | | |
+/// .| | | | |
+/// .| | | | |
+/// .| | | | |
+/// .| | | | |
+/// (0,0) of the chunks [RingBuffer2D] corresponds to (-[RENDER_DISTANCE], -[RENDER_DISTANCE])
 pub struct ChunkLoader {
-    pub chunks: RingBuffer2D<Arc<Chunk>>,
+    pub chunks: RingBuffer2D<Arc<Mutex<Chunk>>>,
     pub atlas_material_index: u32,
     pub center_chunk_position: na::Vector2<i32>,
     position_in_mesh_array: usize,
-    chunk_meshes: RingBuffer2D<Arc<Mesh>>,
-    is_pipeline_updated: bool,
 }
 
 impl ChunkLoader {
-    pub fn load_chunks(
-        position: na::Vector2<f32>,
-        atlas_material_index: u32,
-        mesh_array_len: usize,
-        device: Arc<wgpu::Device>,
-    ) -> Self {
-        let chunked_position = position.map(|i| (i / 16.0) as i32);
-        let origin_coords =
-            na::Vector3::new(chunked_position.x as f32, 0.0, chunked_position.y as f32);
-        let chunks = (0..RENDERED_CHUNKS_LENGTH)
+    pub fn new(atlas_material_index: u32, current_mesh_count: usize) -> Self {
+        let chunks = (-(RENDER_DISTANCE as i32)..=RENDER_DISTANCE as i32)
             .map(|x| {
-                (0..RENDERED_CHUNKS_LENGTH)
-                    .map(|z| {
-                        Arc::new(Chunk {
-                            position: origin_coords.xz().map(|i| i as i32)
-                                + na::Vector2::new(
-                                    x as i32 - RENDER_DISTANCE as i32,
-                                    z as i32 - RENDER_DISTANCE as i32,
-                                ),
-                            chunk_index: (x, z),
+                (-(RENDER_DISTANCE as i32)..=RENDER_DISTANCE as i32)
+                    .map(|y| {
+                        Arc::new(Mutex::new(Chunk::new(
+                            na::Vector2::new(x, y),
+                            (
+                                (x + RENDER_DISTANCE as i32) as u32,
+                                (y + RENDER_DISTANCE as i32) as u32,
+                            ),
                             atlas_material_index,
-                        })
+                        )))
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<Arc<Mutex<Chunk>>>>()
             })
-            .collect::<Vec<_>>();
-        let chunk_meshes = (&chunks)
-            .into_iter()
-            .map(|z_slice| {
-                ChunkLoader::render_chunks(z_slice.to_vec(), device.clone())
-                    .iter()
-                    .map(|c| c.clone())
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+            .collect::<Vec<Vec<Arc<Mutex<Chunk>>>>>();
+        let chunks = RingBuffer2D::new(chunks);
 
-        ChunkLoader {
-            chunks: RingBuffer2D::new(chunks),
+        Self {
+            chunks,
             atlas_material_index,
-            center_chunk_position: chunked_position,
-            position_in_mesh_array: mesh_array_len,
-            chunk_meshes: RingBuffer2D::new(chunk_meshes),
-            is_pipeline_updated: false,
+            center_chunk_position: na::Vector2::new(0, 0),
+            position_in_mesh_array: current_mesh_count,
         }
     }
 
-    pub fn reload_chunks(&mut self, offset: na::Vector2<i32>, device: Arc<wgpu::Device>) {
-        // Moving positive z
-        if offset.y == -1 {
-            let mut original_chunks = Vec::with_capacity(RENDERED_CHUNKS_LENGTH);
-            let chunks_to_render: Vec<Arc<Chunk>> = self
-                .chunks
-                .index_horizontal(-1)
-                .into_iter()
-                .map(|c| {
-                    original_chunks.push(c.clone());
-                    let chunk_coords = c.position + na::Vector2::new(0, 1);
-                    Arc::new(Chunk {
-                        position: chunk_coords,
-                        chunk_index: (0, RENDER_DISTANCE - 1),
-                        atlas_material_index: self.atlas_material_index,
-                    })
-                })
-                .collect();
-            self.chunks.rotate_down(1);
-            self.chunks.mut_index_horizontal(-1, &chunks_to_render);
-
-            let new_chunks = ChunkLoader::render_chunks(chunks_to_render, device.clone());
-            self.chunk_meshes.rotate_down(1);
-            self.chunk_meshes.mut_index_horizontal(-1, &new_chunks);
-        }
-        // Moving negatve z
-        if offset.y == 1 {
-            let chunks_to_render: Vec<Arc<Chunk>> = self
-                .chunks
-                .index_horizontal(0)
-                .iter()
-                .map(|c| {
-                    let chunk_coords = c.position + na::Vector2::new(0, -1);
-                    Arc::new(Chunk {
-                        position: chunk_coords,
-                        chunk_index: (0, RENDER_DISTANCE - 1),
-                        atlas_material_index: self.atlas_material_index,
-                    })
-                })
-                .collect();
-            self.chunks.rotate_up(1);
-            self.chunks.mut_index_horizontal(0, &chunks_to_render);
-
-            let new_chunks = ChunkLoader::render_chunks(chunks_to_render, device.clone());
-            self.chunk_meshes.rotate_up(1);
-            self.chunk_meshes.mut_index_horizontal(0, &new_chunks);
-        }
-
-        // Moving positive x
-        if offset.x == -1 {
-            let chunks_to_render: Vec<Arc<Chunk>> = self.chunks[-1]
-                .into_iter()
-                .map(|c| {
-                    let chunk_coords = c.position + na::Vector2::new(1, 0);
-                    Arc::new(Chunk {
-                        position: chunk_coords,
-                        chunk_index: (RENDER_DISTANCE - 1, 0),
-                        atlas_material_index: self.atlas_material_index,
-                    })
-                })
-                .collect();
-            self.chunks.rotate_left(1);
-            self.chunks.replace_last(RingBuffer::new(
-                (&chunks_to_render).into_iter().map(|c| c.clone()).collect(),
-            ));
-
-            let new_chunks = ChunkLoader::render_chunks(chunks_to_render, device.clone());
-            self.chunk_meshes.rotate_left(1);
-
-            for (i, chunk) in new_chunks.into_iter().enumerate() {
-                self.chunk_meshes[-1][i as i32] = chunk.clone();
-            }
-        }
-
-        // Moving negative x
-        if offset.x == 1 {
-            let chunks_to_render: Vec<Arc<Chunk>> = self.chunks[0]
-                .into_iter()
-                .map(|c| {
-                    let chunk_coords = c.position + na::Vector2::new(-1, 0);
-                    Arc::new(Chunk {
-                        position: chunk_coords,
-                        chunk_index: (RENDER_DISTANCE - 1, 0),
-                        atlas_material_index: self.atlas_material_index,
-                    })
-                })
-                .collect();
-            self.chunks.rotate_right(1);
-            self.chunks.replace_first(RingBuffer::new(
-                (&chunks_to_render).into_iter().map(|c| c.clone()).collect(),
-            ));
-
-            let new_chunks = ChunkLoader::render_chunks(chunks_to_render, device.clone());
-            self.chunk_meshes.rotate_right(1);
-
-            for (i, chunk) in new_chunks.into_iter().enumerate() {
-                self.chunk_meshes[0][i as i32] = chunk.clone();
+    pub fn initialize_chunks(
+        &self,
+        mesh_manager: Arc<Mutex<MeshManager>>,
+        device: Arc<wgpu::Device>,
+    ) {
+        for chunk_column in &self.chunks {
+            for chunk in chunk_column.into_iter() {
+                let chunk_mesh = chunk.clone().lock().unwrap().create_mesh(device.clone());
+                mesh_manager
+                    .lock()
+                    .unwrap()
+                    .diffuse_pipeline_models
+                    .push(chunk_mesh);
             }
         }
     }
 
-    pub fn render_chunks(chunks: Vec<Arc<Chunk>>, device: Arc<wgpu::Device>) -> Vec<Arc<Mesh>> {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(chunks.len())
-            .build()
-            .unwrap();
+    fn mark_chunks_to_reload(&self, offset: (i32, i32)) -> Vec<(i32, i32)> {
+        match offset {
+            (-1, 0) => {
+                return (0..RENDERED_CHUNKS_LENGTH as i32)
+                    .map(|y| (0, y))
+                    .collect::<Vec<(i32, i32)>>()
+            }
+            (1, 0) => {
+                return (0..RENDERED_CHUNKS_LENGTH as i32)
+                    .map(|y| (-1, y))
+                    .collect::<Vec<(i32, i32)>>()
+            }
+            (0, 1) => {
+                return (0..RENDERED_CHUNKS_LENGTH as i32)
+                    .map(|x| (x, -1))
+                    .collect::<Vec<(i32, i32)>>()
+            }
+            (0, -1) => {
+                return (0..RENDERED_CHUNKS_LENGTH as i32)
+                    .map(|x| (x, 0))
+                    .collect::<Vec<(i32, i32)>>()
+            }
+            _ => vec![],
+        }
+    }
 
-        let results = chunks
-            .par_iter()
-            .map(|chunk_data| {
-                let chunk = chunk_data.clone();
-                let device = device.clone();
-                pool.install(move || {
-                    let mesh = chunk.create_mesh(device);
-                    return mesh;
-                    // meshes_clone.clone().lock().unwrap()[i] = Some(mesh.clone());
-                    // return i;
-                })
-            })
-            .collect::<Vec<_>>();
-        results
+    fn create_new_chunk_meshes(
+        &mut self,
+        offset: (i32, i32),
+        chunk_indices: Vec<(i32, i32)>,
+        device: Arc<wgpu::Device>,
+        mesh_manager: Arc<Mutex<MeshManager>>,
+    ) {
+        for chunk_index in chunk_indices {
+            let mut current_chunk = self.chunks[chunk_index].lock().unwrap();
+            if offset.0 != 0 {
+                current_chunk.position.x =
+                    -1 * self.center_chunk_position.x - offset.0 * (RENDER_DISTANCE as i32 + 1);
+            }
+
+            if offset.1 != 0 {
+                current_chunk.position.y =
+                    -1 * self.center_chunk_position.y - offset.1 * (RENDER_DISTANCE as i32 + 1);
+            }
+
+            let new_mesh = current_chunk.create_mesh(device.clone());
+            let linearized_index = self.position_in_mesh_array
+                + match offset {
+                    (-1, 0) => self.chunks.linearize_index((0, chunk_index.1)),
+                    (1, 0) => self.chunks.linearize_index((-1, chunk_index.1)),
+                    (0, 1) => self.chunks.linearize_index((chunk_index.0, -1)),
+                    (0, -1) => self.chunks.linearize_index((chunk_index.0, 0)),
+                    _ => 0,
+                };
+            mesh_manager.lock().unwrap().diffuse_pipeline_models[linearized_index] = new_mesh;
+        }
+        match offset {
+            (-1, 0) => self.chunks.rotate_left(1),
+            (1, 0) => self.chunks.rotate_right(1),
+            (0, 1) => self.chunks.rotate_up(1),
+            (0, -1) => self.chunks.rotate_down(1),
+            _ => {}
+        };
     }
 }
 
@@ -206,49 +158,34 @@ impl FrameDependancy for ChunkLoader {
         renderer: &gamezap::renderer::Renderer,
         _engine_systems: std::cell::Ref<gamezap::EngineSystems>,
     ) {
-        let camera_manager = &renderer.module_manager.camera_manager;
-        if let Some(camera_manager) = camera_manager {
-            let position = camera_manager.borrow().camera.borrow().position.xz();
-            let chunked_position = position.map(|i| i as i32 / 16);
-            let offset = chunked_position - self.center_chunk_position;
-            if offset != na::Vector2::new(0, 0) {
-                let device_arc = renderer.device.clone();
-                self.reload_chunks(offset, device_arc);
-                self.is_pipeline_updated = false;
-            }
-            if !self.is_pipeline_updated {
-                let mesh_manager = renderer
-                    .module_manager
-                    .mesh_manager
-                    .as_ref()
-                    .unwrap()
-                    .clone();
+        let camera_manager = renderer
+            .module_manager
+            .camera_manager
+            .as_ref()
+            .unwrap()
+            .borrow();
+        let position = camera_manager.camera.borrow().position;
+        let chunked_position = na::Vector2::new(position.x as i32 / 16, position.z as i32 / 16);
 
-                let chunk_meshes = self.chunk_meshes.flatten();
+        let offset_vec = chunked_position - self.center_chunk_position;
+        let offset = (offset_vec.x, offset_vec.y);
 
-                let num_meshes = mesh_manager
-                    .clone()
-                    .lock()
-                    .unwrap()
-                    .diffuse_pipeline_models
-                    .len() as i32;
-                for (i, mesh) in chunk_meshes.iter().enumerate() {
-                    if num_meshes - RENDERED_CHUNKS_LENGTH as i32 > 0 {
-                        mesh_manager.clone().lock().unwrap().diffuse_pipeline_models
-                            [i + self.position_in_mesh_array] = mesh.clone();
-                    } else {
-                        mesh_manager
-                            .clone()
-                            .lock()
-                            .unwrap()
-                            .diffuse_pipeline_models
-                            .push(mesh.clone());
-                    }
-                }
-
-                self.is_pipeline_updated = true;
-                self.center_chunk_position = chunked_position;
-            }
+        if offset != (0, 0) {
+            let chunks_to_load = self.mark_chunks_to_reload(offset);
+            let mesh_manager = renderer
+                .module_manager
+                .borrow()
+                .mesh_manager
+                .borrow()
+                .as_ref()
+                .unwrap();
+            self.create_new_chunk_meshes(
+                offset,
+                chunks_to_load,
+                renderer.device.clone(),
+                mesh_manager.clone(),
+            );
         }
+        self.center_chunk_position = chunked_position;
     }
 }

@@ -1,7 +1,7 @@
 use std::{
     borrow::BorrowMut,
     cell::{Ref, RefCell, RefMut},
-    rc::Rc,
+    sync::Arc,
 };
 
 use chunk_loader::ChunkLoader;
@@ -25,12 +25,14 @@ mod tests {
 
 const ATLAS_SIZE: f32 = 256.0;
 
-fn main() {
+
+#[tokio::main]
+async fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let event_pump = sdl_context.event_pump().unwrap();
     let window_size = (1200, 800);
-    let window = Rc::new(
+    let window = Arc::new(
         video_subsystem
             .window("MyCraft", window_size.0, window_size.1)
             .resizable()
@@ -98,12 +100,13 @@ fn main() {
 
     let mesh_manager = renderer.module_manager.mesh_manager.as_ref().unwrap();
 
-    let chunk_loader = ChunkLoader::load_chunks(
-        na::Vector2::new(0.0, 0.0),
+    let chunk_loader = ChunkLoader::new(
         texture_atlas.1,
         mesh_manager.lock().unwrap().diffuse_pipeline_models.len(),
-        renderer_device.clone(),
     );
+
+    chunk_loader.initialize_chunks(mesh_manager.clone(), renderer_device.clone());
+
     let chunk_loader_frame_dependancy: RefCell<Box<dyn FrameDependancy>> =
         RefCell::new(Box::new(chunk_loader));
 
@@ -121,7 +124,7 @@ fn main() {
             Box::new(recalculate_chunks),
             vec![chunk_loader_frame_dependancy.borrow_mut()],
         ),
-    ]);
+    ]).await;
 }
 
 fn input(

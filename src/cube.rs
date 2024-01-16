@@ -19,10 +19,10 @@ pub const FACE_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
 #[derive(Debug)]
 pub struct BlockWrapper;
 
-impl std::ops::Index<u32> for BlockWrapper {
+impl std::ops::Index<u16> for BlockWrapper {
     type Output = Blocks;
 
-    fn index(&self, index: u32) -> &Self::Output {
+    fn index(&self, index: u16) -> &Self::Output {
         match index {
             0 => &Blocks::Grass,
             1 => &Blocks::Dirt,
@@ -41,43 +41,47 @@ impl Blocks {
     }
 }
 
+pub type Face = [Vertex; 4];
+
 pub struct MeshInfo {
-    pub vertices: [Vertex; 24],
-    pub vertex_count: usize,
+    pub faces: [Face; 6],
+    pub face_count: usize,
 }
 
 impl MeshInfo {
     pub fn init() -> Self {
         MeshInfo {
-            vertices: [Vertex::blank(); 24],
-            vertex_count: 0,
+            faces: [[Vertex::blank(); 4]; 6],
+            face_count: 0,
         }
+    }
+
+    pub fn full(pos: na::Vector3<f32>) -> Self {
+        let mut mesh = MeshInfo::init();
+        mesh.append_data(NEGATIVE_X_FACE.lock().unwrap(), (0.0, 0.0), pos);
+        mesh.append_data(NEGATIVE_Y_FACE.lock().unwrap(), (0.0, 0.0), pos);
+        mesh.append_data(NEGATIVE_Z_FACE.lock().unwrap(), (0.0, 0.0), pos);
+        mesh.append_data(POSITIVE_X_FACE.lock().unwrap(), (0.0, 0.0), pos);
+        mesh.append_data(POSITIVE_Y_FACE.lock().unwrap(), (0.0, 0.0), pos);
+        mesh.append_data(POSITIVE_Z_FACE.lock().unwrap(), (0.0, 0.0), pos);
+        mesh
     }
 
     pub fn append_data(
         &mut self,
-        new_vertices: MutexGuard<[Vertex; 4]>,
+        new_vertices: MutexGuard<Face>,
         coords: (f32, f32),
         vertex_offset: na::Vector3<f32>,
     ) {
-        let slice = &mut self.vertices[self.vertex_count..self.vertex_count + 4];
-        for (i, old_vert) in slice.iter_mut().enumerate() {
-            let old_position = na::Vector3::new(
-                new_vertices[i].position[0],
-                new_vertices[i].position[1],
-                new_vertices[i].position[2],
-            );
-            *old_vert = new_vertices[i];
-            old_vert.position = (old_position + vertex_offset).into();
-            old_vert.tex_coords[0] += coords.0;
-            old_vert.tex_coords[1] += coords.1;
+        for (i, vert) in new_vertices.iter().enumerate() {
+            self.faces[self.face_count][i] = vert.translate(vertex_offset);
         }
-        self.vertex_count += 4;
+        self.face_count += 1;
     }
 }
 
 lazy_static! {
-    static ref NEGATIVE_Z_FACE: Mutex<[Vertex; 4]> = Mutex::new([
+    static ref NEGATIVE_Z_FACE: Mutex<Face> = Mutex::new([
         Vertex {
             position: [0.0, 1.0, 0.0],
             tex_coords: [FACE_TEXTURE_OFFSET, 0.0],
@@ -105,9 +109,9 @@ lazy_static! {
             normal: [0.0, 0.0, -1.0],
             bitangent: [0.0, 0.0, 0.0],
             tangent: [0.0, 0.0, 0.0],
-        },
+        }
     ]);
-    static ref POSITIVE_Z_FACE: Mutex<[Vertex; 4]> = Mutex::new([
+    static ref POSITIVE_Z_FACE: Mutex<Face> = Mutex::new([
         Vertex {
             position: [0.0, 1.0, 1.0],
             tex_coords: [FACE_TEXTURE_OFFSET, 0.0],
@@ -137,7 +141,7 @@ lazy_static! {
             tangent: [0.0, 0.0, 0.0],
         },
     ]);
-    static ref NEGATIVE_X_FACE: Mutex<[Vertex; 4]> = Mutex::new([
+    static ref NEGATIVE_X_FACE: Mutex<Face> = Mutex::new([
         Vertex {
             position: [0.0, 1.0, 0.0],
             tex_coords: [FACE_TEXTURE_OFFSET, 0.0],
@@ -167,7 +171,7 @@ lazy_static! {
             tangent: [0.0, 0.0, 0.0],
         },
     ]);
-    static ref POSITIVE_X_FACE: Mutex<[Vertex; 4]> = Mutex::new([
+    static ref POSITIVE_X_FACE: Mutex<Face> = Mutex::new([
         Vertex {
             position: [1.0, 1.0, 0.0],
             tex_coords: [FACE_TEXTURE_OFFSET, 0.0],
@@ -197,7 +201,7 @@ lazy_static! {
             tangent: [0.0, 0.0, 0.0],
         },
     ]);
-    static ref NEGATIVE_Y_FACE: Mutex<[Vertex; 4]> = Mutex::new([
+    static ref NEGATIVE_Y_FACE: Mutex<Face> = Mutex::new([
         Vertex {
             position: [0.0, 0.0, 0.0],
             tex_coords: [2.0 * FACE_TEXTURE_OFFSET, 0.0],
@@ -227,7 +231,7 @@ lazy_static! {
             tangent: [0.0, 0.0, 0.0],
         },
     ]);
-    static ref POSITIVE_Y_FACE: Mutex<[Vertex; 4]> = Mutex::new([
+    static ref POSITIVE_Y_FACE: Mutex<Face> = Mutex::new([
         Vertex {
             position: [0.0, 1.0, 0.0],
             tex_coords: [0.0, 0.0],

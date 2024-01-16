@@ -93,6 +93,13 @@ impl<T: Debug> Index<i32> for RingBuffer<T> {
     type Output = T;
 }
 
+impl<T: Debug> Index<u32> for RingBuffer<T> {
+    fn index(&self, index: u32) -> &Self::Output {
+        &self.buffer[index as usize]
+    }
+    type Output = T;
+}
+
 impl<T: Debug> IndexMut<i32> for RingBuffer<T> {
     fn index_mut(&mut self, index: i32) -> &mut Self::Output {
         &mut self.buffer[self.recalculate_index(index)]
@@ -138,38 +145,62 @@ pub struct RingBuffer2D<T> {
     pub buffer: RingBuffer<RingBuffer<T>>,
     pub horizontal_start: i32,
     pub vertical_start: i32,
+    pub rows: usize,
+    pub cols: usize,
 }
 
 #[allow(unused)]
 impl<T: Clone + Debug> RingBuffer2D<T> {
     pub fn new(data: Vec<Vec<T>>) -> Self {
+        let rows = data[0].len();
+        let cols = data.len();
         RingBuffer2D {
             buffer: data.into_iter().map(|i| RingBuffer::new(i)).collect(),
             horizontal_start: 0,
             vertical_start: 0,
+            rows,
+            cols,
         }
     }
+
+    pub fn create_blank(rows: usize, cols: usize) -> Self {
+        let test = RingBuffer2D {
+            buffer: (0..cols)
+                .map(|_| RingBuffer::new(Vec::<T>::with_capacity(rows)))
+                .collect(),
+            horizontal_start: 0,
+            vertical_start: 0,
+            rows,
+            cols,
+        };
+        test
+    }
+
     pub fn rotate_left(&mut self, amount: u32) {
         self.horizontal_start += amount as i32;
-        self.buffer.rotate_left(1);
+        self.horizontal_start %= self.cols as i32;
+        self.buffer.rotate_left(amount);
     }
 
     pub fn rotate_right(&mut self, amount: u32) {
         self.horizontal_start -= amount as i32;
-        self.buffer.rotate_right(1);
+        self.horizontal_start %= self.cols as i32;
+        self.buffer.rotate_right(amount);
     }
 
     pub fn rotate_up(&mut self, amount: u32) {
         self.vertical_start -= amount as i32;
+        self.vertical_start %= self.rows as i32;
         for vertical_slice in &mut self.buffer {
-            vertical_slice.rotate_right(1)
+            vertical_slice.rotate_right(amount);
         }
     }
 
     pub fn rotate_down(&mut self, amount: u32) {
         self.vertical_start += amount as i32;
+        self.vertical_start %= self.rows as i32;
         for vertical_slice in &mut self.buffer {
-            vertical_slice.rotate_left(1)
+            vertical_slice.rotate_left(amount);
         }
     }
 
@@ -183,10 +214,18 @@ impl<T: Clone + Debug> RingBuffer2D<T> {
         self[-1] = element;
     }
 
-    fn recalculate_index(&self, index: i32) -> usize {
-        let mut index = ((index + self.vertical_start) % self.buffer[0].len() as i32);
+    pub fn recalculate_index_horizontal(&self, index: i32) -> usize {
+        let mut index = ((index + self.horizontal_start) % self.cols as i32);
         if index < 0 {
-            index = self.buffer.len() as i32 + index;
+            index = self.cols as i32 - index.abs() ;
+        }
+        index as usize
+    }
+
+    pub fn recalculate_index_vertical(&self, index: i32) -> usize {
+        let mut index = ((index + self.vertical_start) % self.rows as i32);
+        if index < 0 {
+            index = self.rows as i32 - index.abs() ;
         }
         index as usize
     }
@@ -221,6 +260,26 @@ impl<T: Clone + Debug> RingBuffer2D<T> {
         }
         flattened
     }
+
+    pub fn linearize_index(&self, index_2d: (i32, i32)) -> usize {
+        // println!("HORIZONTAL_START: {}, {}", self.recalculate_index(index_2d.0), index_2d.0);
+        return self.rows as usize * self.recalculate_index_horizontal(index_2d.0)
+            + self.recalculate_index_vertical(index_2d.1);
+    }
+}
+
+impl<T: Clone + Copy + Debug> RingBuffer2D<T> {
+    pub fn create_full(item: T, rows: usize, cols: usize) -> Self {
+        RingBuffer2D {
+            buffer: (0..cols)
+                .map(|_| RingBuffer::new(vec![item; rows]))
+                .collect(),
+            horizontal_start: 0,
+            vertical_start: 0,
+            rows,
+            cols,
+        }
+    }
 }
 
 /// Index gives vertical slices
@@ -231,10 +290,30 @@ impl<T: Debug> Index<i32> for RingBuffer2D<T> {
     type Output = RingBuffer<T>;
 }
 
+impl<T: Debug> Index<u32> for RingBuffer2D<T> {
+    fn index(&self, index: u32) -> &Self::Output {
+        &self.buffer[index]
+    }
+    type Output = RingBuffer<T>;
+}
+
 /// Mutate vertical slices
 impl<T: Debug> IndexMut<i32> for RingBuffer2D<T> {
     fn index_mut(&mut self, index: i32) -> &mut Self::Output {
         &mut self.buffer[index]
+    }
+}
+
+impl<T: Debug> Index<(i32, i32)> for RingBuffer2D<T> {
+    fn index(&self, index: (i32, i32)) -> &Self::Output {
+        &self.buffer[index.0][index.1]
+    }
+    type Output = T;
+}
+
+impl<T: Debug> IndexMut<(i32, i32)> for RingBuffer2D<T> {
+    fn index_mut(&mut self, index: (i32, i32)) -> &mut Self::Output {
+        &mut self.buffer[index.0][index.1]
     }
 }
 

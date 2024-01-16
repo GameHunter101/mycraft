@@ -17,3 +17,5 @@ sdl2 = {git = "https://github.com/Rust-SDL2/rust-sdl2.git", features = ["raw-win
 threadpool = "1.8.1"
 wgpu = "0.17.0"
 time = "0.3.24"
+num-traits = "0.2.17"
+tokio = { version = "1.35.1", features = ["full"] }
